@@ -1,0 +1,11 @@
+# No Python dependencies required
+# This project uses only Python standard library modules
+
+# Optional Python packages:
+# - tomli (for Python < 3.11 TOML support)
+#   Install with: pip install tomli
+
+# System dependencies (must be installed separately):
+# - mpg123 (audio player for MP3/OGG/AAC)
+# - aplay (audio player for WAV files, part of alsa-utils)
+# - ffprobe (for track duration and metadata detection, part of ffmpeg)

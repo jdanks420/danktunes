@@ -1,0 +1,32 @@
+# danktunes Configuration
+# Colors can be: black, red, green, yellow, blue, magenta, cyan, white,
+# gray/bright_black, bright_red, bright_green, bright_yellow, bright_blue,
+# bright_magenta, bright_cyan, bright_white, bold, dim, italic, underline,
+# reverse, hidden, reset, default
+
+[music]
+# Path to your music library
+directory = "~/Music"
+
+[playlist]
+# Directory to store playlist files
+directory = "~/.config/danktunes/playlists"
+
+[colors]
+# Color scheme for the UI
+header = "bold"
+secondary = "gray"
+selection = "reverse"
+text = "default"
+
+[ui]
+# UI options
+borders = true
+# Glyph to display in the header (any text character or emoji)
+header_glyph = "😎"
+
+[notifications]
+# Desktop notifications on track change
+enabled = false
+# Glyph/icon to show in notifications (any text character)
+glyph = "🎵"

@@ -1,0 +1,131 @@
+DANKTUNES(1)              General Commands Manual             DANKTUNES(1)
+
+NAME
+       danktunes - Terminal-based music player with playlist support
+
+SYNOPSIS
+       python3 danktunes.py [OPTIONS]
+
+DESCRIPTION
+       danktunes is a minimalist terminal-based music player that
+       provides file browsing, audio playback, and playlist management
+       using only keyboard controls.
+
+OPTIONS
+       --no-tty-check
+              Run in non-interactive mode
+
+       audio_file
+              Play the specified audio file directly
+
+KEYBOARD CONTROLS
+   Navigation
+       ↑/↓ or j/k  Navigate through file browser
+       Enter        Play selected file or toggle folder
+       v            Toggle playlist view
+
+   Playback
+       Space        Play/Pause
+       n            Next track
+       p            Previous track
+       s            Stop playback
+       →            Seek forward 5 seconds
+       ←            Seek backward 5 seconds
+       1            Decrease playback speed
+       2            Increase playback speed
+       0            Reset speed to 1.0x
+
+   Playlist Management
+       a            Add selected track to playlist
+       A            Add all visible tracks to playlist
+       x            Remove selected track from playlist
+       c            Clear entire playlist
+       Shift+S      Toggle shuffle mode
+       [            Previous track in playlist
+       ]            Next track in playlist
+       L            Load playlist
+       W            Save playlist
+
+   Other
+       ?            Show help screen
+       q            Quit
+
+PLAYLIST VIEW
+       When playlist view is active (press v):
+       ↑/↓ or j/k  Scroll through playlist
+       Enter        Play selected track
+       x            Remove selected track
+       v            Close playlist view
+
+CONFIGURATION
+       The player uses a TOML configuration file at:
+       ~/.config/danktunes/danktunes.toml (follows XDG Base Directory Specification)
+
+       Configuration sections:
+       [music]      Music library directory
+       [playlist]   Playlist storage directory
+       [colors]     Color scheme customization
+
+SUPPORTED FORMATS
+       Format    Player    Extensions
+       ------    ------    ----------
+       MP3       mpg123    .mp3
+       OGG       mpg123    .ogg
+       AAC       mpg123    .m4a, .aac
+       FLAC      mpg123    .flac
+       WAV       aplay     .wav
+
+PLAYLISTS
+       Playlists are saved in M3U format to config/playlists/
+       Playlists support:
+       - Relative paths from music directory
+       - Extended info (#EXTINF) for track durations
+       - Standard M3U compatibility
+
+EXIT STATUS
+       0   Success
+       1   Error (audio player not found, invalid file, etc.)
+
+FILES
+       ~/.config/danktunes/danktunes.toml
+              Main configuration file
+
+       ~/.config/danktunes/playlists/*.m3u
+              Saved playlists in M3U format
+
+       ~/.cache/danktunes/durations.json
+              Cached track durations (auto-generated)
+
+ENVIRONMENT
+       HOME    Home directory for default music folder
+       XDG_CONFIG_HOME
+              Custom config directory (overrides default)
+
+REQUIREMENTS
+       Python 3.x
+       mpg123 (audio playback)
+       alsa-utils (aplay for WAV)
+       ffmpeg (ffprobe for metadata/duration)
+
+EXAMPLES
+       Start player:
+              python3 danktunes.py
+
+       Play specific file:
+              python3 danktunes.py ~/Music/song.mp3
+
+       Non-interactive playback:
+              python3 danktunes.py --no-tty-check ~/Music/song.mp3
+
+BUGS
+       Report issues at: https://github.com/anomalyco/danktunes/issues
+
+AUTHOR
+       Written for the minimalist music player project.
+
+COPYRIGHT
+       This is free software; see the source for copying conditions.
+       There is NO warranty; not even for MERCHANTABILITY or FITNESS
+       FOR A PARTICULAR PURPOSE.
+
+DANKTUNES(1)              User Commands                DANKTUNES(1)
