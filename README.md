@@ -163,6 +163,8 @@ glyph = "🎵"
 
 ## Controls
 
+Press `?` anytime to view all keyboard shortcuts in the help overlay.
+
 | Key | Action |
 |-----|--------|
 | **Navigation** | |
@@ -187,7 +189,6 @@ glyph = "🎵"
 | L | Load playlist |
 | W | Save playlist |
 | **Other** | |
-| ? | Show help |
 | q | Quit |
 
 ## Playlist View
