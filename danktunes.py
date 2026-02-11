@@ -13,7 +13,6 @@ This module provides a full-featured terminal music player with:
 # =============================================================================
 # Imports
 # =============================================================================
-import atexit
 import fcntl
 import os
 import re
@@ -2181,30 +2180,20 @@ def _handle_search(key: str) -> bool:
                 state.search_cursor = min(
                     len(state.recursive_search_results) - 1, state.search_cursor + 1
                 )
-                if len(state.recursive_search_results) == 0:
-                    state.search_cursor = 0
         else:
-            # Fix: Check if search results has items before navigating
             if state.search_results:
                 state.search_cursor = min(
                     len(state.search_results) - 1, state.search_cursor + 1
                 )
-                if len(state.search_results) == 0:
-                    state.search_cursor = 0
         return True
         
     elif key == "\033[A" or key == "k":  # Up
         if state.search_mode == "recursive":
             if state.recursive_search_results:
                 state.search_cursor = max(0, state.search_cursor - 1)
-                if len(state.recursive_search_results) == 0:
-                    state.search_cursor = 0
         else:
-            # Fix: Check if search results has items before navigating
             if state.search_results:
                 state.search_cursor = max(0, state.search_cursor - 1)
-                if len(state.search_results) == 0:
-                    state.search_cursor = 0
         return True
         
     elif key == "\177" or key == "\x7f":  # Backspace
@@ -2213,24 +2202,27 @@ def _handle_search(key: str) -> bool:
             if state.search_mode == "recursive":
                 state.recursive_search_results = _perform_recursive_search(state.search_query)
                 state.search_cursor = min(
-                    len(state.recursive_search_results) - 1, state.search_cursor
+                    max(0, len(state.recursive_search_results) - 1), state.search_cursor
                 )
             else:
                 state.search_results = _perform_search(state.search_query)
                 state.search_cursor = min(
-                    len(state.search_results) - 1, state.search_cursor
+                    max(0, len(state.search_results) - 1), state.search_cursor
                 )
         return True
         
     elif len(key) == 1 and key.isprintable():
-        # Add character to search query
         state.search_query += key
         if state.search_mode == "recursive":
             state.recursive_search_results = _perform_recursive_search(state.search_query)
-            state.search_cursor = min(len(state.recursive_search_results) - 1, state.search_cursor)
+            state.search_cursor = min(
+                max(0, len(state.recursive_search_results) - 1), state.search_cursor
+            )
         else:
             state.search_results = _perform_search(state.search_query)
-            state.search_cursor = min(len(state.search_results) - 1, state.search_cursor)
+            state.search_cursor = min(
+                max(0, len(state.search_results) - 1), state.search_cursor
+            )
         return True
     return False
 
@@ -2288,53 +2280,6 @@ def _build_flat_items(tree_items: List[TreeItem]) -> List[TreeItem]:
     
     add_items_recursive(tree_items)
     return flat_list
-
-    if key == "\033":  # Escape
-        state.show_search = False
-        state.search_query = ""
-        state.search_results = []
-        state.search_cursor = 0
-        return True
-    elif key == "\r" or key == "\n":  # Enter - play selected
-        if state.search_results and state.search_cursor < len(state.search_results):
-            track_path = state.search_results[state.search_cursor]
-            play(track_path)
-            state.show_search = False
-        return True
-    elif key == "\033[B" or key == "j":  # Down
-        # Fix: Check if search results has items before navigating
-        if state.search_results:
-            state.search_cursor = min(
-                len(state.search_results) - 1, state.search_cursor + 1
-            )
-            # Reset to 0 if search results became empty
-            if len(state.search_results) == 0:
-                state.search_cursor = 0
-        return True
-    elif key == "\033[A" or key == "k":  # Up
-        # Fix: Check if search results has items before navigating
-        if state.search_results:
-            state.search_cursor = max(0, state.search_cursor - 1)
-            # Reset to 0 if search results became empty
-            if len(state.search_results) == 0:
-                state.search_cursor = 0
-        return True
-    elif key == "\177" or key == "\x7f":  # Backspace
-        if state.search_query:
-            state.search_query = state.search_query[:-1]
-            state.search_results = _perform_search(state.search_query)
-            state.search_cursor = min(
-                len(state.search_results) - 1, state.search_cursor
-            )
-        return True
-    elif len(key) == 1 and key.isprintable():
-        # Add character to search query
-        state.search_query += key
-        state.search_results = _perform_search(state.search_query)
-        state.search_cursor = min(len(state.search_results) - 1, state.search_cursor)
-        return True
-
-    return False
 
 
 resize_received = False
