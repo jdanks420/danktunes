@@ -1512,16 +1512,13 @@ def draw() -> List[TreeItem]:
     inner = cols - 2  # Account for left and right borders
 
     # Calculate how many lines are available for items
-    terminal_height = lines
-    terminal_width = cols
-
     if USE_BORDERS:
         # Reserve lines for borders: top(1) + header(1) + items(max_visible) + progress separator(1) + progress(1) + bottom(1) = 6 lines total
-        # Visible item area should be terminal_height - 6 so the bottom border sits at the terminal bottom
-        max_visible = max(3, terminal_height - 6)
+        # Visible item area should be lines - 6 so the bottom border sits at the terminal bottom
+        max_visible = max(3, lines - 6)
     else:
         # Reserve lines: header(1) + items(max_visible) + progress(1) + 1 buffer = 4 lines
-        max_visible = max(3, terminal_height - 4)
+        max_visible = max(3, lines - 4)
 
     # Update scroll offset
     if state.cursor < state.scroll_offset:
@@ -1902,8 +1899,6 @@ def _handle_save_playlist() -> bool:
     Returns:
         True if playlist was saved, False otherwise
     """
-    global state
-
     if not state.playlist:
         return False
 
