@@ -226,16 +226,3 @@ Playlists are stored in `config/playlists/` as `.m3u` files.
 ## Keyboard Shortcuts
 
 Press `?` anytime to view all keyboard shortcuts in the help overlay.
-
-## Project Structure
-
-```
-danktunes/
-├── danktunes.py      # Main application
-├── danktunes.toml    # Configuration file
-├── playlists/        # M3U playlist storage
-├── README.md        # Documentation
-├── TODO.md          # Feature roadmap
-├── manpage.txt      # Man page
-└── requirements.txt # Dependencies
-```
