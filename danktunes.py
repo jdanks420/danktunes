@@ -66,6 +66,14 @@ def validate_state():
             logger.warning(f"Playlist index out of bounds: {state.playlist_index} >= {len(state.playlist)}")
             state.playlist_index = max(0, len(state.playlist) - 1)
         
+        # Check playlist scroll offset bounds
+        if state.playlist:
+            visible = min(VISIBLE_PLAYLIST_ITEMS, len(state.playlist))
+            max_offset = max(0, len(state.playlist) - visible)
+            if state.playlist_scroll_offset > max_offset:
+                logger.warning(f"Playlist scroll offset out of bounds: {state.playlist_scroll_offset}")
+                state.playlist_scroll_offset = max_offset
+        
         # Check volume bounds
         if state.volume < 0 or state.volume > 100:
             logger.warning(f"Volume out of bounds: {state.volume}")
@@ -236,6 +244,7 @@ class PlayerState:
     # Playlist
     playlist: List[str] = field(default_factory=list)
     playlist_index: int = 0
+    playlist_scroll_offset: int = 0
     shuffle_mode: bool = False
     show_playlist: bool = False
     repeat_mode: str = "off"
@@ -953,12 +962,14 @@ def remove_from_playlist(index: int) -> None:
         state.playlist.pop(index)
         if state.playlist_index >= len(state.playlist):
             state.playlist_index = 0
+            state.playlist_scroll_offset = 0
 
 
 def clear_playlist() -> None:
     """Clear the entire playlist."""
     state.playlist = []
     state.playlist_index = 0
+    state.playlist_scroll_offset = 0
 
 
 def toggle_shuffle_mode() -> None:
@@ -977,6 +988,7 @@ def toggle_shuffle_mode() -> None:
             state.playlist_index = state.playlist.index(current)
         else:
             state.playlist_index = 0
+            state.playlist_scroll_offset = 0
 
 
 def toggle_repeat_mode() -> None:
@@ -1036,6 +1048,7 @@ def go_to_next_track() -> bool:
         return True
     elif state.repeat_mode == "all":
         state.playlist_index = 0
+        state.playlist_scroll_offset = 0
         return True
     return False
 
@@ -1197,6 +1210,7 @@ def load_playlist_m3u(name: str) -> bool:
                     continue
 
             state.playlist_index = 0
+            state.playlist_scroll_offset = 0
             return True
     except (OSError, ValueError):
         pass
@@ -1404,8 +1418,8 @@ def draw_playlist_overlay() -> None:
         print(f"  PL:{state.playlist_index + 1}/{len(state.playlist)}")
 
     for i in range(visible):
-        if i < len(state.playlist):
-            idx = i
+        idx = state.playlist_scroll_offset + i
+        if idx < len(state.playlist):
             item_path = state.playlist[idx]
             name = os.path.basename(item_path)
 
@@ -1829,6 +1843,9 @@ def _handle_navigation(key: str) -> bool:
     if key == "j":
         if state.show_playlist and state.playlist:
             state.playlist_index = min(len(state.playlist) - 1, state.playlist_index + 1)
+            visible = min(VISIBLE_PLAYLIST_ITEMS, len(state.playlist))
+            if state.playlist_index >= state.playlist_scroll_offset + visible:
+                state.playlist_scroll_offset = state.playlist_index - visible + 1
             handled = True
         elif state.flat_items:
             state.cursor = min(len(state.flat_items) - 1, state.cursor + 1)
@@ -1837,6 +1854,8 @@ def _handle_navigation(key: str) -> bool:
     elif key == "k":
         if state.show_playlist and state.playlist:
             state.playlist_index = max(0, state.playlist_index - 1)
+            if state.playlist_index < state.playlist_scroll_offset:
+                state.playlist_scroll_offset = state.playlist_index
             handled = True
         elif state.flat_items:
             state.cursor = max(0, state.cursor - 1)
@@ -1845,6 +1864,8 @@ def _handle_navigation(key: str) -> bool:
     elif key == "\x1b[A":  # Up arrow
         if state.show_playlist and state.playlist:
             state.playlist_index = max(0, state.playlist_index - 1)
+            if state.playlist_index < state.playlist_scroll_offset:
+                state.playlist_scroll_offset = state.playlist_index
             handled = True
         elif state.flat_items:
             state.cursor = max(0, state.cursor - 1)
@@ -1853,6 +1874,9 @@ def _handle_navigation(key: str) -> bool:
     elif key == "\x1b[B":  # Down arrow
         if state.show_playlist and state.playlist:
             state.playlist_index = min(len(state.playlist) - 1, state.playlist_index + 1)
+            visible = min(VISIBLE_PLAYLIST_ITEMS, len(state.playlist))
+            if state.playlist_index >= state.playlist_scroll_offset + visible:
+                state.playlist_scroll_offset = state.playlist_index - visible + 1
             handled = True
         elif state.flat_items:
             state.cursor = min(len(state.flat_items) - 1, state.cursor + 1)
@@ -2418,11 +2442,16 @@ def main() -> None:
                         if seq == "[A":
                             if state.playlist:
                                 state.playlist_index = max(0, state.playlist_index - 1)
+                                if state.playlist_index < state.playlist_scroll_offset:
+                                    state.playlist_scroll_offset = state.playlist_index
                         elif seq == "[B":
                             if state.playlist:
                                 state.playlist_index = min(
                                     len(state.playlist) - 1, state.playlist_index + 1
                                 )
+                                visible = min(VISIBLE_PLAYLIST_ITEMS, len(state.playlist))
+                                if state.playlist_index >= state.playlist_scroll_offset + visible:
+                                    state.playlist_scroll_offset = state.playlist_index - visible + 1
                     else:
                         if seq == "[A":
                             if state.flat_items:
