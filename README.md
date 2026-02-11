@@ -29,6 +29,30 @@ pip install tomli
 python3 danktunes.py
 ```
 
+### Creating a Shell Alias
+
+To easily launch danktunes from anywhere, add an alias to your shell configuration:
+
+**For Bash (add to ~/.bashrc):**
+```bash
+echo 'alias danktunes="python3 /path/to/danktunes/danktunes.py"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**For Zsh (add to ~/.zshrc):**
+```bash
+echo 'alias danktunes="python3 /path/to/danktunes/danktunes.py"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**For Fish (add to ~/.config/fish/config.fish):**
+```bash
+echo 'alias danktunes "python3 /path/to/danktunes/danktunes.py"' >> ~/.config/fish/config.fish
+source ~/.config/fish/config.fish
+```
+
+Replace `/path/to/danktunes/` with the actual path where you cloned the repository.
+
 ## Configuration
 
 The player uses a TOML configuration file for customization.
