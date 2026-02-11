@@ -34,7 +34,12 @@ sudo pacman -S mpg123 alsa-utils ffmpeg
 sudo dnf install mpg123 alsa-utils ffmpeg
 ```
 
-Then run the player:
+**Clone and run:**
+```bash
+git clone https://github.com/jdanks420/danktunes.git
+cd danktunes
+python3 danktunes.py
+```
 ```bash
 python3 danktunes.py
 ```
