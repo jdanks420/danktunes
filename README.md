@@ -8,6 +8,8 @@ A vibe coded minimalist terminal-based music player that serves as a user-friend
 
 <img width="778" height="696" alt="image" src="https://github.com/user-attachments/assets/ee71ca4e-da1f-4db7-aba5-fd9ad160af42" />
 
+<img width="712" alt="Help menu showing all keyboard shortcuts" src="https://github.com/user-attachments/assets/99149b28-66f6-4eb7-925e-b61bd27cd055" />
+
 ## Features
 
 - **File browser** with directory tree navigation
