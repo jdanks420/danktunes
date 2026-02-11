@@ -1545,7 +1545,7 @@ def draw() -> List[TreeItem]:
             else:
                 print(BORDER_V)
         else:
-            _draw_ranger_header(cols, inner)
+            _draw_ranger_header(inner)
     else:
         if state.show_search:
             mode_text = f" ({state.search_mode})" if state.search_mode == "recursive" else ""
@@ -1612,7 +1612,6 @@ def draw() -> List[TreeItem]:
                     line = f"  {Icons.AUDIO}  {disp}"
 
                 if USE_BORDERS:
-                    visible_line = _strip_ansi(line)
                     fill = inner - _display_width(line)
                     print(f"{BORDER_V}{line}", end="")
                     print(" " * max(0, fill) + BORDER_V)
@@ -1665,7 +1664,6 @@ def draw() -> List[TreeItem]:
                     line = f"{prefix}{icon}  {disp}{dur_str}"
 
             if USE_BORDERS:
-                visible_line = _strip_ansi(line)
                 fill = inner - _display_width(line)
                 print(f"{BORDER_V}{line}", end="")
                 print(" " * max(0, fill) + BORDER_V)
@@ -1684,24 +1682,12 @@ def draw() -> List[TreeItem]:
     if USE_BORDERS:
         print(f"{BORDER_LT}{BORDER_H * (cols - 2)}{BORDER_RT}")
 
-    _draw_ranger_progress(cols, inner)
-
-    # Bottom border
-    if USE_BORDERS:
-        print(f"{BORDER_BL}{BORDER_H * (cols - 2)}{BORDER_BR}")
-    else:
-        print()
-
-    # Overlays
-    if state.show_help:
-        draw_help_overlay()
-    elif state.show_playlist:
-        draw_playlist_overlay()
+    _draw_ranger_progress(inner)
 
     return state.flat_items
 
 
-def _draw_ranger_header(cols: int, inner_width: int) -> None:
+def _draw_ranger_header(inner_width: int) -> None:
     """Draw header line inside Ranger-style borders."""
     shuffle_icon = f" {Icons.SHUFFLE}" if state.shuffle_mode else ""
     header_text = _get_header_text()
@@ -1751,7 +1737,7 @@ def _draw_ranger_header(cols: int, inner_width: int) -> None:
             print(BORDER_V)
 
 
-def _draw_ranger_progress(cols: int, inner_width: int) -> None:
+def _draw_ranger_progress(inner_width: int) -> None:
     """Draw progress bar inside Ranger-style borders with dynamic sizing."""
     if state.process and state.process.poll() is None and state.playback_start_time:
         # Calculate elapsed time based on paused state
