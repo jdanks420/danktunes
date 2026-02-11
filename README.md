@@ -34,6 +34,11 @@ sudo pacman -S mpg123 alsa-utils ffmpeg
 sudo dnf install mpg123 alsa-utils ffmpeg
 ```
 
+**Debian**
+```bash
+sudo apt install mpg123 alsa-utils ffmpeg
+```
+
 **Clone and run:**
 ```bash
 git clone https://github.com/jdanks420/danktunes.git
