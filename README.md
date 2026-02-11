@@ -87,8 +87,6 @@ Desktop notification settings:
 - **enabled**: Send desktop notifications when tracks change (default: `false`)
 - **glyph**: Icon to show in notifications (default: `🎵`)
 
-### Example Configuration
-
 ### `[music]` Section
 
 Controls where your music library is located:
