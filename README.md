@@ -3,7 +3,8 @@
 [![GPL License](https://img.shields.io/badge/license-GPL-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
 
-A minimalist terminal-based music player with playlist support, metadata display, and M3U playlist compatibility.
+A vibe coded minimalist terminal-based music player with playlist support, metadata display, and M3U playlist compatibility.
+
 
 <img width="778" height="696" alt="image" src="https://github.com/user-attachments/assets/ee71ca4e-da1f-4db7-aba5-fd9ad160af42" />
 
