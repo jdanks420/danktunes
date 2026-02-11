@@ -28,6 +28,7 @@
   - Add to queue vs add to playlist (`q` key)
   - Queue plays next, then returns to playlist
   - Visual distinction between queue and playlist
+
 ### Playlist Enhancements
 - [ ] Queue system (separate from playlist)
 - [ ] Smart shuffle (prevent recent repeats)

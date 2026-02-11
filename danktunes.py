@@ -30,6 +30,52 @@ import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from collections import OrderedDict
+
+# Import logging configuration
+try:
+    from logging_config import setup_logging, get_logger
+    logger = get_logger('main')
+    # Initialize logging at startup
+    setup_logging()
+except ImportError:
+    # Fallback to basic logging if config not available
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger('main')
+
+
+def validate_state():
+    """Validate current state and fix common issues."""
+    try:
+        # Check for overlay conflicts
+        overlays_active = sum([state.show_help, state.show_playlist, state.show_search])
+        if overlays_active > 1:
+            logger.warning(f"Multiple overlays active: {overlays_active}")
+            # Fix overlay conflicts
+            state.show_help = False
+            state.show_playlist = False
+            state.show_search = False
+        
+        # Check navigation bounds
+        if state.flat_items and state.cursor >= len(state.flat_items):
+            logger.warning(f"Cursor out of bounds: {state.cursor} >= {len(state.flat_items)}")
+            state.cursor = max(0, len(state.flat_items) - 1)
+        
+        # Check playlist bounds
+        if state.playlist and state.playlist_index >= len(state.playlist):
+            logger.warning(f"Playlist index out of bounds: {state.playlist_index} >= {len(state.playlist)}")
+            state.playlist_index = max(0, len(state.playlist) - 1)
+        
+        # Check volume bounds
+        if state.volume < 0 or state.volume > 100:
+            logger.warning(f"Volume out of bounds: {state.volume}")
+            state.volume = max(0, min(100, state.volume))
+        
+        logger.debug("State validation completed")
+        
+    except Exception as e:
+        logger.error(f"Error in state validation: {e}")
 
 # =============================================================================
 # Constants
@@ -199,17 +245,19 @@ class PlayerState:
     last_seek_time: float = 0.0
     paused: bool = False  # Whether playback is currently paused
 
-    # Cache
-    track_durations: Dict[str, float] = field(default_factory=dict)
+    # Cache - Use OrderedDict for LRU behavior
+    track_durations: Dict[str, float] = field(default_factory=lambda: OrderedDict())
 
     # Help
     show_help: bool = False
 
-    # Search
+# Search
     show_search: bool = False
     search_query: str = ""
     search_results: List[str] = field(default_factory=list)
     search_cursor: int = 0
+    recursive_search_results: List[Dict[str, Any]] = field(default_factory=list)
+    search_mode: str = "flat"  # "flat" or "recursive"
 
 
 # =============================================================================
@@ -567,8 +615,9 @@ def scan_all_durations(items: List[TreeItem]) -> int:
                 duration = get_duration(path_str)
                 if duration:
                     if len(state.track_durations) > MAX_TRACK_DURATIONS:
+                        # Use OrderedDict's LRU behavior - remove oldest items
                         keys_to_remove = list(state.track_durations.keys())[
-                            :CACHE_TRIM_SIZE
+                            :len(state.track_durations) - MAX_TRACK_DURATIONS
                         ]
                         for key in keys_to_remove:
                             del state.track_durations[key]
@@ -778,16 +827,29 @@ def stop_audio() -> None:
     try:
         if state.process and state.process.poll() is None:
             try:
+                # Try graceful termination first
                 os.killpg(os.getpgid(state.process.pid), signal.SIGTERM)
-            except Exception:
-                pass
-            try:
-                state.process.wait(timeout=1)
-            except Exception:
-                pass
-    except Exception:
-        pass
+                state.process.wait(timeout=1.0)
+                logger.info(f"Gracefully stopped audio process: {state.process.pid}")
+            except (ProcessLookupError, PermissionError) as e:
+                logger.warning(f"Process lookup/permission error during stop: {e}")
+                pass  # Process may have already terminated
+            except subprocess.TimeoutExpired:
+                try:
+                    # Force kill if graceful termination failed
+                    os.killpg(os.getpgid(state.process.pid), signal.SIGKILL)
+                    state.process.wait(timeout=0.5)
+                    logger.warning(f"Force killed audio process: {state.process.pid}")
+                except (ProcessLookupError, PermissionError, subprocess.TimeoutExpired) as e:
+                    logger.warning(f"Force kill failed: {e}")
+                    pass  # Process may be zombie or already terminated
+        else:
+            logger.debug("No active process to stop")
+    except Exception as e:
+        logger.error(f"Unexpected error during audio stop: {e}")
+        pass  # Ignore any other exceptions during cleanup
     finally:
+        # Always clear state, even if cleanup failed
         state.process = None
         state.current_file = None
         state.current_path = None
@@ -795,6 +857,9 @@ def stop_audio() -> None:
         state.current_position = 0
         state.current_artist = None
         state.current_title = None
+        state.current_player = None
+        state.paused = False
+        logger.info("Audio playback state cleared")
 
 
 def toggle_pause() -> None:
@@ -1014,7 +1079,13 @@ def get_current_track() -> Optional[str]:
 
 def toggle_playlist_view() -> None:
     """Toggle playlist overlay visibility."""
-    state.show_playlist = not state.show_playlist
+    # Fix: Ensure overlay exclusivity - only one overlay active at a time
+    if not state.show_playlist:
+        state.show_playlist = True
+        state.show_help = False
+        state.show_search = False
+    else:
+        state.show_playlist = False
 
 
 # Playlist file functions (save, load, list, import)
@@ -1466,9 +1537,10 @@ def draw() -> List[TreeItem]:
     # Draw header
     if USE_BORDERS:
         if state.show_search:
-            # Search mode header
+            # Search mode header with mode indicator
+            mode_text = f" ({state.search_mode})" if state.search_mode == "recursive" else ""
             search_header = (
-                f"{HEADER_GLYPH}  {C_HEADER}Search: /{state.search_query}{C_RESET}"
+                f"{HEADER_GLYPH}  {C_HEADER}Search{mode_text}: /{state.search_query}{C_RESET}"
             )
             print(f"{BORDER_V}{search_header}", end="")
             fill = inner - _display_width(search_header)
@@ -1480,39 +1552,76 @@ def draw() -> List[TreeItem]:
             _draw_ranger_header(cols, inner)
     else:
         if state.show_search:
-            print(f"{HEADER_GLYPH}  {C_HEADER}Search: /{state.search_query}{C_RESET}")
+            mode_text = f" ({state.search_mode})" if state.search_mode == "recursive" else ""
+            print(f"{HEADER_GLYPH}  {C_HEADER}Search{mode_text}: /{state.search_query}{C_RESET}")
         else:
             print(_draw_header())
 
     # Draw items (or search results)
     if state.show_search:
         # Draw search results
-        visible_results = state.search_results[
-            state.scroll_offset : state.scroll_offset + max_visible
-        ]
-        for i, path_str in enumerate(visible_results):
-            idx = state.scroll_offset + i
-            name = os.path.basename(path_str)
+        if state.search_mode == "recursive":
+            # Draw recursive search results
+            visible_results = state.recursive_search_results[
+                state.scroll_offset : state.scroll_offset + max_visible
+            ]
+            for i, result in enumerate(visible_results):
+                idx = state.scroll_offset + i
+                
+                # Build display line with depth indicator
+                indent = "  " * result['depth']
+                icon = Icons.FOLDER if result['is_dir'] else Icons.AUDIO
+                name = os.path.basename(result['path'])
+                
+                max_len = inner - 4 - len(indent)
+                disp = (
+                    _truncate_to_width(name, max_len)
+                    if _display_width(name) > max_len
+                    else name
+                )
 
-            max_len = inner - 4
-            disp = (
-                _truncate_to_width(name, max_len)
-                if _display_width(name) > max_len
-                else name
-            )
+                if idx == state.search_cursor:
+                    line = f"{indent}{icon}  {C_SELECTION}{disp}{C_RESET}"
+                else:
+                    line = f"{indent}{icon}  {disp}"
 
-            if idx == state.search_cursor:
-                line = f"  {Icons.AUDIO}  {C_SELECTION}{disp}{C_RESET}"
-            else:
-                line = f"  {Icons.AUDIO}  {disp}"
+                if USE_BORDERS:
+                    print(f"{BORDER_V}{line}", end="")
+                    fill = inner - _display_width(line)
+                    if fill > 0:
+                        print(" " * fill + BORDER_V)
+                    else:
+                        print(BORDER_V)
+                else:
+                    print(line)
+        else:
+            # Draw flat search results (legacy)
+            visible_results = state.search_results[
+                state.scroll_offset : state.scroll_offset + max_visible
+            ]
+            for i, path_str in enumerate(visible_results):
+                idx = state.scroll_offset + i
+                name = os.path.basename(path_str)
 
-            if USE_BORDERS:
-                visible_line = _strip_ansi(line)
-                fill = inner - _display_width(line)
-                print(f"{BORDER_V}{line}", end="")
-                print(" " * max(0, fill) + BORDER_V)
-            else:
-                print(line)
+                max_len = inner - 4
+                disp = (
+                    _truncate_to_width(name, max_len)
+                    if _display_width(name) > max_len
+                    else name
+                )
+
+                if idx == state.search_cursor:
+                    line = f"  {Icons.AUDIO}  {C_SELECTION}{disp}{C_RESET}"
+                else:
+                    line = f"  {Icons.AUDIO}  {disp}"
+
+                if USE_BORDERS:
+                    visible_line = _strip_ansi(line)
+                    fill = inner - _display_width(line)
+                    print(f"{BORDER_V}{line}", end="")
+                    print(" " * max(0, fill) + BORDER_V)
+                else:
+                    print(line)
 
         # Fill remaining space
         remaining_space = max_visible - len(visible_results)
@@ -1735,17 +1844,31 @@ def _handle_navigation(key: str) -> bool:
     """
     if key == "j":
         if state.show_playlist:
-            state.playlist_index = min(
-                len(state.playlist) - 1, state.playlist_index + 1
-            )
+            # Fix: Check if playlist has items before navigating
+            if state.playlist:
+                state.playlist_index = min(
+                    len(state.playlist) - 1, state.playlist_index + 1
+                )
         else:
-            state.cursor = min(len(state.flat_items) - 1, state.cursor + 1)
+            # Fix: Check if flat_items has items before navigating
+            if state.flat_items:
+                state.cursor = min(len(state.flat_items) - 1, state.cursor + 1)
         return True
     elif key == "k":
         if state.show_playlist:
-            state.playlist_index = max(0, state.playlist_index - 1)
+            # Fix: Check if playlist has items before navigating
+            if state.playlist:
+                state.playlist_index = max(0, state.playlist_index - 1)
+                # Reset to 0 if playlist became empty
+                if len(state.playlist) == 0:
+                    state.playlist_index = 0
         else:
-            state.cursor = max(0, state.cursor - 1)
+            # Fix: Check if flat_items has items before navigating
+            if state.flat_items:
+                state.cursor = max(0, state.cursor - 1)
+                # Reset to 0 if flat_items became empty
+                if len(state.flat_items) == 0:
+                    state.cursor = 0
         return True
     return False
 
@@ -1906,16 +2029,82 @@ def _handle_volume_control(key: str) -> bool:
         True if handled, False otherwise
     """
     if key == "+" or key == "=":
-        adjust_volume(10)
+        adjust_volume(5)  # Use 5% increments instead of 10%
         return True
-    elif key == "-":
-        adjust_volume(-10)
+    elif key == "-" or key == "_":
+        adjust_volume(-5)  # Use 5% increments instead of 10%
         return True
     return False
 
 
+def _perform_recursive_search(query: str) -> List[Dict[str, Any]]:
+    """Perform recursive search through the entire music directory.
+    
+    Args:
+        query: Search query string
+        
+    Returns:
+        List of dictionaries with 'path', 'tree_item', and 'match_info'
+    """
+    if not query:
+        return []
+
+    query_lower = query.lower()
+    results = []
+
+    def search_tree_recursive(items: List[TreeItem], depth: int = 0) -> None:
+        """Recursively search through tree items."""
+        for item in items:
+            if item.is_dir:
+                # Search in directory name
+                dir_name = item.path.name.lower()
+                if query_lower in dir_name:
+                    results.append({
+                        'path': str(item.path),
+                        'tree_item': item,
+                        'match_info': f"Directory: {item.path.name}",
+                        'depth': depth,
+                        'is_dir': True
+                    })
+                
+                # Recursively search children
+                if item.children:
+                    search_tree_recursive(item.children, depth + 1)
+            else:
+                # Search in audio file
+                path_str = str(item.path)
+                filename = item.path.name.lower()
+                
+                # Check for matches in filename and full path
+                match_type = None
+                if query_lower in filename:
+                    match_type = "filename"
+                elif query_lower in path_str.lower():
+                    match_type = "path"
+                
+                if match_type:
+                    results.append({
+                        'path': path_str,
+                        'tree_item': item,
+                        'match_info': f"{match_type.title()}: {item.path.name}",
+                        'depth': depth,
+                        'is_dir': False
+                    })
+
+    # Start recursive search from tree_items (root level)
+    search_tree_recursive(state.tree_items)
+    
+    # Sort results: directories first, then by depth, then by filename
+    results.sort(key=lambda x: (not x['is_dir'], x['depth'], x['path'].lower()))
+    
+    return results
+
+
 def _perform_search(query: str) -> List[str]:
-    """Perform search through the library and return matching paths."""
+    """Perform search through the library and return matching paths.
+    
+    This is the legacy search function for backward compatibility.
+    """
     if not query:
         return []
 
@@ -1950,6 +2139,154 @@ def _handle_search(key: str) -> bool:
         state.show_search = False
         state.search_query = ""
         state.search_results = []
+        state.recursive_search_results = []
+        state.search_cursor = 0
+        return True
+        
+    elif key == "\t":  # Tab - toggle search mode
+        if state.search_mode == "flat":
+            state.search_mode = "recursive"
+            state.recursive_search_results = _perform_recursive_search(state.search_query)
+        else:
+            state.search_mode = "flat"
+            state.search_results = _perform_search(state.search_query)
+            state.recursive_search_results = []
+        state.search_cursor = 0
+        return True
+        
+    elif key == "\r" or key == "\n":  # Enter - play or jump to selected
+        if state.search_mode == "recursive":
+            # Jump to file in browser
+            if state.recursive_search_results and state.search_cursor < len(state.recursive_search_results):
+                selected = state.recursive_search_results[state.search_cursor]
+                _jump_to_file_in_browser(selected['path'], selected['tree_item'])
+                state.show_search = False
+        else:
+            # Play selected (flat search)
+            if state.search_results and state.search_cursor < len(state.search_results):
+                track_path = state.search_results[state.search_cursor]
+                play(track_path)
+                state.show_search = False
+        return True
+        
+    elif key == "\033[B" or key == "j":  # Down
+        if state.search_mode == "recursive":
+            if state.recursive_search_results:
+                state.search_cursor = min(
+                    len(state.recursive_search_results) - 1, state.search_cursor + 1
+                )
+                if len(state.recursive_search_results) == 0:
+                    state.search_cursor = 0
+        else:
+            # Fix: Check if search results has items before navigating
+            if state.search_results:
+                state.search_cursor = min(
+                    len(state.search_results) - 1, state.search_cursor + 1
+                )
+                if len(state.search_results) == 0:
+                    state.search_cursor = 0
+        return True
+        
+    elif key == "\033[A" or key == "k":  # Up
+        if state.search_mode == "recursive":
+            if state.recursive_search_results:
+                state.search_cursor = max(0, state.search_cursor - 1)
+                if len(state.recursive_search_results) == 0:
+                    state.search_cursor = 0
+        else:
+            # Fix: Check if search results has items before navigating
+            if state.search_results:
+                state.search_cursor = max(0, state.search_cursor - 1)
+                if len(state.search_results) == 0:
+                    state.search_cursor = 0
+        return True
+        
+    elif key == "\177" or key == "\x7f":  # Backspace
+        if state.search_query:
+            state.search_query = state.search_query[:-1]
+            if state.search_mode == "recursive":
+                state.recursive_search_results = _perform_recursive_search(state.search_query)
+                state.search_cursor = min(
+                    len(state.recursive_search_results) - 1, state.search_cursor
+                )
+            else:
+                state.search_results = _perform_search(state.search_query)
+                state.search_cursor = min(
+                    len(state.search_results) - 1, state.search_cursor
+                )
+        return True
+        
+    elif len(key) == 1 and key.isprintable():
+        # Add character to search query
+        state.search_query += key
+        if state.search_mode == "recursive":
+            state.recursive_search_results = _perform_recursive_search(state.search_query)
+            state.search_cursor = min(len(state.recursive_search_results) - 1, state.search_cursor)
+        else:
+            state.search_results = _perform_search(state.search_query)
+            state.search_cursor = min(len(state.search_results) - 1, state.search_cursor)
+        return True
+    return False
+
+
+def _jump_to_file_in_browser(file_path: str, target_tree_item: TreeItem) -> None:
+    """Jump to specific file in the file browser.
+    
+    Args:
+        file_path: Path to the target file
+        target_tree_item: TreeItem to locate in browser
+    """
+    # First, ensure the parent directories are expanded
+    current = target_tree_item.parent
+    while current:
+        current.expanded = True
+        current = current.parent
+    
+    # Rebuild flat_items to include the target
+    state.flat_items = _build_flat_items(state.tree_items)
+    
+    # Find the target in flat_items and set cursor
+    for i, item in enumerate(state.flat_items):
+        if str(item.path) == file_path:
+            state.cursor = i
+            # Ensure the target is visible by adjusting scroll offset
+            visible_items = _get_visible_items_count()
+            if i >= state.scroll_offset + visible_items:
+                state.scroll_offset = i - visible_items + 2
+            elif i < state.scroll_offset:
+                state.scroll_offset = max(0, i - 2)
+            break
+
+
+def _get_visible_items_count() -> int:
+    """Get number of items visible in current terminal height."""
+    try:
+        # Get terminal height
+        import shutil
+        terminal_height = shutil.get_terminal_size().lines
+        # Reserve space for header, status bar, etc.
+        return max(5, terminal_height - 10)
+    except Exception:
+        return 15  # Default fallback
+
+
+def _build_flat_items(tree_items: List[TreeItem]) -> List[TreeItem]:
+    """Build flat_items list from tree_items, respecting expansion state."""
+    flat_list = []
+    
+    def add_items_recursive(items: List[TreeItem]) -> None:
+        for item in items:
+            flat_list.append(item)
+            if item.is_dir and item.expanded:
+                add_items_recursive(item.children)
+    
+    add_items_recursive(tree_items)
+    return flat_list
+
+    if key == "\033":  # Escape
+        state.show_search = False
+        state.search_query = ""
+        state.search_results = []
         state.search_cursor = 0
         return True
     elif key == "\r" or key == "\n":  # Enter - play selected
@@ -1959,12 +2296,22 @@ def _handle_search(key: str) -> bool:
             state.show_search = False
         return True
     elif key == "\033[B" or key == "j":  # Down
-        state.search_cursor = min(
-            len(state.search_results) - 1, state.search_cursor + 1
-        )
+        # Fix: Check if search results has items before navigating
+        if state.search_results:
+            state.search_cursor = min(
+                len(state.search_results) - 1, state.search_cursor + 1
+            )
+            # Reset to 0 if search results became empty
+            if len(state.search_results) == 0:
+                state.search_cursor = 0
         return True
     elif key == "\033[A" or key == "k":  # Up
-        state.search_cursor = max(0, state.search_cursor - 1)
+        # Fix: Check if search results has items before navigating
+        if state.search_results:
+            state.search_cursor = max(0, state.search_cursor - 1)
+            # Reset to 0 if search results became empty
+            if len(state.search_results) == 0:
+                state.search_cursor = 0
         return True
     elif key == "\177" or key == "\x7f":  # Backspace
         if state.search_query:
@@ -2068,6 +2415,15 @@ def main() -> None:
 
     try:
         while True:
+            # Fix: Validate state periodically to catch issues early
+            if time.time() - last_draw > 1.0:  # Validate every second
+                try:
+                    # State validation is now in main file
+                    validate_state()
+                    logger.debug("State validation completed")
+                except Exception as e:
+                    logger.error(f"Error in state validation: {e}")
+            
             # Check if process ended and auto-advance playlist
             if state.process and state.process.poll() is not None and state.playlist:
                 state.process = None
@@ -2130,18 +2486,38 @@ def main() -> None:
 
                     if state.show_playlist:
                         if seq == "[A":
-                            state.playlist_index = max(0, state.playlist_index - 1)
+                            # Fix: Check if playlist has items before navigating
+                            if state.playlist:
+                                state.playlist_index = max(0, state.playlist_index - 1)
+                                # Reset to 0 if playlist became empty
+                                if len(state.playlist) == 0:
+                                    state.playlist_index = 0
                         elif seq == "[B":
-                            state.playlist_index = min(
-                                len(state.playlist) - 1, state.playlist_index + 1
-                            )
+                            # Fix: Check if playlist has items before navigating
+                            if state.playlist:
+                                state.playlist_index = min(
+                                    len(state.playlist) - 1, state.playlist_index + 1
+                                )
+                                # Reset to 0 if playlist became empty
+                                if len(state.playlist) == 0:
+                                    state.playlist_index = 0
                     else:
                         if seq == "[A":
-                            state.cursor = max(0, state.cursor - 1)
+                            # Fix: Check if flat_items has items before navigating
+                            if state.flat_items:
+                                state.cursor = max(0, state.cursor - 1)
+                                # Reset to 0 if flat_items became empty
+                                if len(state.flat_items) == 0:
+                                    state.cursor = 0
                         elif seq == "[B":
-                            state.cursor = min(
-                                len(state.flat_items) - 1, state.cursor + 1
-                            )
+                            # Fix: Check if flat_items has items before navigating
+                            if state.flat_items:
+                                state.cursor = min(
+                                    len(state.flat_items) - 1, state.cursor + 1
+                                )
+                                # Reset to 0 if flat_items became empty
+                                if len(state.flat_items) == 0:
+                                    state.cursor = 0
                         elif seq == "[C":
                             seek("forward")
                         elif seq == "[D":
@@ -2167,14 +2543,24 @@ def main() -> None:
                                 play(str(item.path))
 
                 elif ch == "?":
-                    state.show_help = not state.show_help
-                    state.show_playlist = False
+                    # Fix: Ensure overlay exclusivity - only one overlay active at a time
+                    if not state.show_help:
+                        state.show_help = True
+                        state.show_playlist = False
+                        state.show_search = False
+                    else:
+                        state.show_help = False
 
                 elif ch == "/":
+                    # Fix: Ensure overlay exclusivity - only one overlay active at a time
                     state.show_search = True
+                    state.show_help = False
+                    state.show_playlist = False
                     state.search_query = ""
-                    state.search_results = _perform_search("")
+                    state.search_results = []
+                    state.recursive_search_results = []
                     state.search_cursor = 0
+                    state.search_mode = "recursive"  # Default to recursive search
 
                 elif ch == "q":
                     _exit_now()
