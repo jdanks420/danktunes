@@ -11,7 +11,6 @@ A vibe coded minimalist terminal-based music player that serves as a user-friend
 <img width="761" height="726" alt="image" src="https://github.com/user-attachments/assets/190a40bf-24dc-4b15-bee1-96fd91fc400a" />
 
 fits nicely into multiplexers with minimal ui
-
 <img width="1919" height="1079" alt="image" src="https://github.com/user-attachments/assets/5ee853a9-caa6-41cc-9c06-1a8ead3f7329" />
 
 
