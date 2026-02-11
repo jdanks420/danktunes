@@ -24,14 +24,18 @@ A vibe coded minimalist terminal-based music player that serves as a user-friend
 
 ## Installation
 
+**Arch Linux:**
 ```bash
-# Install system dependencies (Debian/Ubuntu)
-sudo apt install mpg123 alsa-utils ffmpeg
+sudo pacman -S mpg123 alsa-utils ffmpeg
+```
 
-# Optional: tomli for Python < 3.11
-pip install tomli
+**Fedora:**
+```bash
+sudo dnf install mpg123 alsa-utils ffmpeg
+```
 
-# Run the player
+Then run the player:
+```bash
 python3 danktunes.py
 ```
 
