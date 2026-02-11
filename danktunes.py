@@ -1842,35 +1842,41 @@ def _handle_navigation(key: str) -> bool:
     Returns:
         True if handled, False otherwise
     """
+    handled = False
+    
     if key == "j":
-        if state.show_playlist:
-            # Fix: Check if playlist has items before navigating
-            if state.playlist:
-                state.playlist_index = min(
-                    len(state.playlist) - 1, state.playlist_index + 1
-                )
-        else:
-            # Fix: Check if flat_items has items before navigating
-            if state.flat_items:
-                state.cursor = min(len(state.flat_items) - 1, state.cursor + 1)
-        return True
+        if state.show_playlist and state.playlist:
+            state.playlist_index = min(len(state.playlist) - 1, state.playlist_index + 1)
+            handled = True
+        elif state.flat_items:
+            state.cursor = min(len(state.flat_items) - 1, state.cursor + 1)
+            handled = True
+            
     elif key == "k":
-        if state.show_playlist:
-            # Fix: Check if playlist has items before navigating
-            if state.playlist:
-                state.playlist_index = max(0, state.playlist_index - 1)
-                # Reset to 0 if playlist became empty
-                if len(state.playlist) == 0:
-                    state.playlist_index = 0
-        else:
-            # Fix: Check if flat_items has items before navigating
-            if state.flat_items:
-                state.cursor = max(0, state.cursor - 1)
-                # Reset to 0 if flat_items became empty
-                if len(state.flat_items) == 0:
-                    state.cursor = 0
-        return True
-    return False
+        if state.show_playlist and state.playlist:
+            state.playlist_index = max(0, state.playlist_index - 1)
+            handled = True
+        elif state.flat_items:
+            state.cursor = max(0, state.cursor - 1)
+            handled = True
+            
+    elif key == "\x1b[A":  # Up arrow
+        if state.show_playlist and state.playlist:
+            state.playlist_index = max(0, state.playlist_index - 1)
+            handled = True
+        elif state.flat_items:
+            state.cursor = max(0, state.cursor - 1)
+            handled = True
+            
+    elif key == "\x1b[B":  # Down arrow
+        if state.show_playlist and state.playlist:
+            state.playlist_index = min(len(state.playlist) - 1, state.playlist_index + 1)
+            handled = True
+        elif state.flat_items:
+            state.cursor = min(len(state.flat_items) - 1, state.cursor + 1)
+            handled = True
+            
+    return handled
 
 
 def _handle_playback(key: str) -> bool:
@@ -2486,38 +2492,22 @@ def main() -> None:
 
                     if state.show_playlist:
                         if seq == "[A":
-                            # Fix: Check if playlist has items before navigating
                             if state.playlist:
                                 state.playlist_index = max(0, state.playlist_index - 1)
-                                # Reset to 0 if playlist became empty
-                                if len(state.playlist) == 0:
-                                    state.playlist_index = 0
                         elif seq == "[B":
-                            # Fix: Check if playlist has items before navigating
                             if state.playlist:
                                 state.playlist_index = min(
                                     len(state.playlist) - 1, state.playlist_index + 1
                                 )
-                                # Reset to 0 if playlist became empty
-                                if len(state.playlist) == 0:
-                                    state.playlist_index = 0
                     else:
                         if seq == "[A":
-                            # Fix: Check if flat_items has items before navigating
                             if state.flat_items:
                                 state.cursor = max(0, state.cursor - 1)
-                                # Reset to 0 if flat_items became empty
-                                if len(state.flat_items) == 0:
-                                    state.cursor = 0
                         elif seq == "[B":
-                            # Fix: Check if flat_items has items before navigating
                             if state.flat_items:
                                 state.cursor = min(
                                     len(state.flat_items) - 1, state.cursor + 1
                                 )
-                                # Reset to 0 if flat_items became empty
-                                if len(state.flat_items) == 0:
-                                    state.cursor = 0
                         elif seq == "[C":
                             seek("forward")
                         elif seq == "[D":
