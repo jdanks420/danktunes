@@ -1920,11 +1920,9 @@ def _handle_save_playlist() -> bool:
 
         return True
     except Exception:
-        # Restore terminal on error
         try:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
-            tty.setcbreak(fd)
-        except:
+        except Exception:
             pass
         return False
 
