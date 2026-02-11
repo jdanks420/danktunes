@@ -2089,7 +2089,11 @@ def main() -> None:
                 or resize_received
             )
             resize_received = False
-            if (now - last_draw >= REDRAW_INTERVAL) or state_changed:
+            # Only redraw on interval if not showing static overlays (help/playlist)
+            needs_redraw = state_changed or (
+                (now - last_draw >= REDRAW_INTERVAL) and not (state.show_help or state.show_playlist)
+            )
+            if needs_redraw:
                 print("\033[2J\033[H", end="")
                 if state.show_help:
                     draw_help_overlay()
