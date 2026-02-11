@@ -40,10 +40,6 @@ git clone https://github.com/jdanks420/danktunes.git
 cd danktunes
 python3 danktunes.py
 ```
-```bash
-python3 danktunes.py
-```
-
 ### Creating a Shell Alias
 
 Add `python3 /home/username/danktunes/danktunes.py` as an alias in your shell configuration to easily launch danktunes from anywhere.
