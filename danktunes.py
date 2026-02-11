@@ -2356,6 +2356,8 @@ def main() -> None:
     last_show_playlist = state.show_playlist
     last_show_help = state.show_help
     last_playlist_len = len(state.playlist)
+    last_playlist_index = state.playlist_index
+    last_playlist_scroll = state.playlist_scroll_offset
 
     if _config_created:
         print(f"\n  Config file created at: {CONFIG_DIR / 'danktunes.toml'}")
@@ -2396,6 +2398,8 @@ def main() -> None:
                 or state.show_search != last_show_search
                 or state.search_query != last_search_query
                 or len(state.playlist) != last_playlist_len
+                or state.playlist_index != last_playlist_index
+                or state.playlist_scroll_offset != last_playlist_scroll
                 or resize_received
             )
             resize_received = False
@@ -2418,6 +2422,8 @@ def main() -> None:
                 last_show_search = state.show_search
                 last_search_query = state.search_query
                 last_playlist_len = len(state.playlist)
+                last_playlist_index = state.playlist_index
+                last_playlist_scroll = state.playlist_scroll_offset
 
             # Input handling
             while True:
