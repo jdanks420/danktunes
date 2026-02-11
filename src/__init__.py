@@ -10,7 +10,6 @@ __description__ = "A terminal-based music player with playlist support, search f
 from . import audio
 from . import state
 from . import config
-from . import logging_config
 
 # Re-export key classes and functions
 __all__ = [

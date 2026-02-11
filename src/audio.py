@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from contextlib import contextmanager
 
-from danktunes.logging_config import get_logger, AudioPlayerError
+from logging_config import get_logger, AudioPlayerError
 
 logger = get_logger('audio')
 

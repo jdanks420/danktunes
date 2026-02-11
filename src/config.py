@@ -8,7 +8,7 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional, Dict, Any
 
-from danktunes.logging_config import get_logger, ConfigurationError
+from logging_config import get_logger, ConfigurationError
 
 logger = get_logger('config')
 

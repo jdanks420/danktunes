@@ -12,8 +12,6 @@ except ImportError:
     import logging
     logger = logging.getLogger('state')
 
-logger = get_logger('state')
-
 
 @dataclass
 class NavigationState:
