@@ -5,6 +5,8 @@
 
 A minimalist terminal-based music player with playlist support, metadata display, and M3U playlist compatibility.
 
+<img width="778" height="696" alt="image" src="https://github.com/user-attachments/assets/ee71ca4e-da1f-4db7-aba5-fd9ad160af42" />
+
 ## Features
 
 - **File browser** with directory tree navigation
