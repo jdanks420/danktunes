@@ -2591,6 +2591,9 @@ def main() -> None:
                             remove_from_playlist(state.playlist_index)
                     elif ch == "v":
                         toggle_playlist_view()
+                    elif _handle_navigation(ch):
+                        # Handle navigation keys in playlist mode (j, k, arrows)
+                        pass
 
                 else:
                     # Handle all other keys through specialized handlers
