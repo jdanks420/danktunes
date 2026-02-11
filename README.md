@@ -41,40 +41,53 @@ Add `python3 /home/username/danktunes/danktunes.py` as an alias in your shell co
 
 ## Configuration
 
-The player uses a TOML configuration file for customization.
-
-### Config File Location
-
-The player follows the XDG Base Directory Specification:
-
+The player uses a TOML configuration file for customization. The config file is stored at:
 - `~/.config/danktunes/danktunes.toml` (standard location)
 - `danktunes.toml` (in project folder for portable/development use)
 
-### Default Configuration
+### `[music]` Section
 
-```toml
-[music]
-directory = "~/Music"
+Controls where your music library is located:
 
-[playlist]
-directory = "~/.config/danktunes/playlists"
+- **directory**: Path to your music library (default: `~/Music`)
 
-[colors]
-header = "bold"
-secondary = "gray"
-selection = "reverse"
-text = "default"
-```
+### `[playlist]` Section
 
-### Available Colors
+Controls where playlists are stored:
 
+- **directory**: Path to store M3U playlist files (default: `~/.config/danktunes/playlists`)
+
+### `[colors]` Section
+
+Customize the UI color scheme:
+
+- **header**: Color for the header text and icons (default: `bold`)
+- **secondary**: Color for secondary information like speed and duration (default: `gray`)
+- **selection**: Color for the currently selected item (default: `reverse`)
+- **text**: Color for regular text (default: `default`)
+
+**Available Colors:**
 - **Basic**: black, red, green, yellow, blue, magenta, cyan, white
 - **Bright**: bright_black (gray), bright_red, bright_green, bright_yellow, bright_blue, bright_magenta, bright_cyan, bright_white
 - **Styles**: bold, dim, italic, underline, reverse, hidden
 
-## Configuration Options
+### `[ui]` Section
 
-All configuration options are stored in the TOML file (`~/.config/danktunes/danktunes.toml`):
+Control UI appearance and behavior:
+
+- **borders**: Show decorative borders in the interface (default: `true`)
+- **header_glyph**: Custom emoji/icon to display in the header (default: `😎`)
+  - Can be any Unicode character, emoji, or text symbol
+  - Example alternatives: `🎵`, `♪`, `🎧`, `▶`, `◈`
+
+### `[notifications]` Section
+
+Desktop notification settings:
+
+- **enabled**: Send desktop notifications when tracks change (default: `false`)
+- **glyph**: Icon to show in notifications (default: `🎵`)
+
+### Example Configuration
 
 ### `[music]` Section
 
