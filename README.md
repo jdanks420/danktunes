@@ -37,34 +37,7 @@ python3 danktunes.py
 
 ### Creating a Shell Alias
 
-To easily launch danktunes from anywhere, add an alias to your shell configuration:
-
-First, find where you cloned the repository:
-```bash
-cd ~/danktunes  # or wherever you cloned it
-pwd
-# This will show the full path, e.g., /home/username/danktunes
-```
-
-**For Bash (add to ~/.bashrc):**
-```bash
-echo 'alias danktunes="python3 /home/username/danktunes/danktunes.py"' >> ~/.bashrc
-source ~/.bashrc
-```
-
-**For Zsh (add to ~/.zshrc):**
-```bash
-echo 'alias danktunes="python3 /home/username/danktunes/danktunes.py"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-**For Fish (add to ~/.config/fish/config.fish):**
-```bash
-echo 'alias danktunes "python3 /home/username/danktunes/danktunes.py"' >> ~/.config/fish/config.fish
-source ~/.config/fish/config.fish
-```
-
-**Replace `/home/username/danktunes` with your actual path.**
+Add `python3 /home/username/danktunes/danktunes.py` as an alias in your shell configuration to easily launch danktunes from anywhere.
 
 ## Configuration
 
