@@ -19,12 +19,19 @@ Fits nicely into multiplexers with minimal ui.
 
 - **File browser** with directory tree navigation
 - **Audio playback** using mpg123/aplay
-- **Playlist management** with shuffle mode
+- **Playlist management** with shuffle and repeat modes
 - **Speed control** and seeking
 - **Metadata display** (Artist - Title)
 - **M3U playlist support** (import/export)
 - **TOML configuration** for colors and directories
 - **Help screen** with all keyboard shortcuts
+- **Search** through your music library
+- **Album art** display in terminal (iTerm2, Kitty, Ueberzug)
+- **Overlays** for help, playlist, search, and album art views
+- **Favorites** - mark and manage favorite tracks
+- **Sort modes** - sort playlist by name, date, or duration
+- **Smart shuffle** - avoids recently played tracks
+- **Desktop notifications** on track change
 
 ## Installation
 
@@ -69,7 +76,7 @@ Controls where your music library is located:
 
 Controls where playlists are stored:
 
-- **directory**: Path to store M3U playlist files (default: `~/.config/danktunes/playlists`)
+- **directory**: Path to store M3U playlist files (default: `~/.local/share/music_player/playlists`)
 
 ### `[colors]` Section
 
@@ -89,7 +96,7 @@ Customize the UI color scheme:
 
 Control UI appearance and behavior:
 
-- **borders**: Show decorative borders in the interface (default: `true`)
+- **borders**: Show decorative borders in the interface (default: `false`)
 - **header_glyph**: Custom emoji/icon to display in the header (default: `😎`)
   - Can be any Unicode character, emoji, or text symbol
   - Example alternatives: `🎵`, `♪`, `🎧`, `▶`, `◈`
@@ -101,42 +108,12 @@ Desktop notification settings:
 - **enabled**: Send desktop notifications when tracks change (default: `false`)
 - **glyph**: Icon to show in notifications (default: `🎵`)
 
-### `[music]` Section
+### `[album_art]` Section
 
-Controls where your music library is located:
+Album art display settings:
 
-- **directory**: Path to your music library (default: `~/Music`)
-
-### `[playlist]` Section
-
-Controls where playlists are stored:
-
-- **directory**: Path to store M3U playlist files (default: `~/.config/danktunes/playlists`)
-
-### `[colors]` Section
-
-Customize the UI color scheme using any of the available colors listed above:
-
-- **header**: Color for the header text and icons (default: `bold`)
-- **secondary**: Color for secondary information like speed and duration (default: `gray`)
-- **selection**: Color for the currently selected item (default: `reverse`)
-- **text**: Color for regular text (default: `default`)
-
-### `[ui]` Section
-
-Control UI appearance and behavior:
-
-- **borders**: Show decorative borders in the interface (default: `true`)
-- **header_glyph**: Custom emoji/icon to display in the header (default: `😎`)
-  - Can be any Unicode character, emoji, or text symbol
-  - Example alternatives: `🎵`, `♪`, `🎧`, `▶`, `◈`
-
-### `[notifications]` Section
-
-Desktop notification settings:
-
-- **enabled**: Send desktop notifications when tracks change (default: `false`)
-- **glyph**: Icon to show in notifications (default: `🎵`)
+- **enabled**: Show album art in the player (default: `true`)
+- **width**: Width of album art display in characters (default: `20`)
 
 ### Example Configuration
 
@@ -154,12 +131,16 @@ selection = "reverse"
 text = "default"
 
 [ui]
-borders = true
+borders = false
 header_glyph = "🎧"
 
 [notifications]
 enabled = true
 glyph = "🎵"
+
+[album_art]
+enabled = true
+width = 20
 ```
 
 ## Controls
@@ -179,6 +160,8 @@ Press `?` anytime to view all keyboard shortcuts in the help overlay.
 | →/← | Seek ±5s |
 | 1/2 | Decrease/Increase speed |
 | 0 | Reset speed to 1.0x |
+| +/- | Volume up/down |
+| r | Cycle repeat: off → all → one |
 | **Playlist** | |
 | a | Add selected to playlist |
 | A | Add all visible files |
@@ -189,8 +172,39 @@ Press `?` anytime to view all keyboard shortcuts in the help overlay.
 | v | View playlist |
 | L | Load playlist |
 | W | Save playlist |
+| **Overlays** | |
+| ? | Toggle help screen |
+| / | Search library |
+| o | Toggle album art view |
+| Tab | Toggle search mode (flat/recursive) |
 | **Other** | |
 | q | Quit |
+
+## Overlays
+
+danktunes features several overlay views that provide focused information:
+
+### Help Overlay (?)
+
+Shows all available keyboard shortcuts organized by category.
+
+### Playlist Overlay (v)
+
+Displays the current playlist with track numbers and titles. Use arrow keys or j/k to navigate, Enter to play, Space to toggle play/pause, x to remove tracks.
+
+### Search Overlay (/)
+
+Search through your music library by filename or path. Press Tab to toggle between:
+- **Flat search**: Searches current view only
+- **Recursive search**: Searches entire music directory tree
+
+Use Backspace to delete characters, Enter to play selected result, Escape to close.
+
+### Album Art Overlay (o)
+
+Displays album art (if available) along with track info and a progress bar. Supports iTerm2, Kitty, and Ueberzug protocols.
+
+Only one overlay can be active at a time - opening a new one closes the previous.
 
 ## Playlist View
 
@@ -201,6 +215,7 @@ Press `v` to toggle playlist view:
 | ↑/↓ or j/k | Scroll through playlist |
 | Enter | Play selected track |
 | x | Remove selected track |
+| Space | Play/Pause |
 | v | Close playlist view |
 
 ## M3U Playlists
