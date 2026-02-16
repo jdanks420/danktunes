@@ -3548,6 +3548,10 @@ def main() -> None:
                             toggle_playlist_view()
                         elif ch == "d":
                             toggle_auto_dj()
+                        elif ch == "r":
+                            toggle_repeat_mode()
+                        elif _handle_playlist_commands(ch):
+                            pass
 
                 elif state.show_playlist:
                     # Handle playlist-specific keys
