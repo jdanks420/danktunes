@@ -1094,8 +1094,8 @@ def _get_metadata_ffprobe(path: str) -> Tuple[Optional[str], Optional[str]]:
         )
         if result.returncode == 0:
             lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip()]
-            artist = lines[0] if lines and lines[0] else None
-            title = lines[1] if len(lines) > 1 and lines[1] else None
+            artist = lines[0] if len(lines) > 0 else None
+            title = lines[1] if len(lines) > 1 else None
             return (artist, title)
         return (None, None)
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
