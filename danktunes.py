@@ -3537,7 +3537,12 @@ def main() -> None:
                     state.show_help = False
 
                 elif state.show_search:
-                    if not _handle_search(ch):
+                    # Handle special keys before search handler
+                    if ch == "d":
+                        toggle_auto_dj()
+                    elif ch == "r":
+                        toggle_repeat_mode()
+                    elif not _handle_search(ch):
                         # Pass through to other handlers if not handled
                         if _handle_navigation(ch):
                             pass
@@ -3546,10 +3551,6 @@ def main() -> None:
                         elif ch == "v":
                             state.show_search = False
                             toggle_playlist_view()
-                        elif ch == "d":
-                            toggle_auto_dj()
-                        elif ch == "r":
-                            toggle_repeat_mode()
                         elif _handle_playlist_commands(ch):
                             pass
 
