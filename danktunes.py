@@ -10,11 +10,16 @@ This module provides a full-featured terminal music player with:
 - Keyboard shortcuts for all operations
 """
 
+__version__ = "2.0.0"
+__author__ = "DankTunes Team"
+__description__ = "A terminal-based music player with playlist support, search, and audio playback."
+
 # =============================================================================
 # Imports
 # =============================================================================
 import fcntl
 import os
+import random
 import re
 import select
 import shutil
@@ -27,6 +32,7 @@ import time
 import tty
 import unicodedata
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from collections import OrderedDict
@@ -97,8 +103,31 @@ SPEED_STEP: float = 0.1
 SEEK_SECONDS: int = 5
 VISIBLE_PLAYLIST_ITEMS: int = 15
 
+# Performance settings
+DURATION_SCAN_WORKERS: int = 4
+DURATION_SCAN_BATCH_SIZE: int = 100
+ENABLE_PARALLEL_DURATION_SCAN: bool = True
+
 # Audio file extensions
 AUDIO_EXTENSIONS: Set[str] = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac"}
+
+# External command cache
+_command_cache: Dict[str, Optional[str]] = {}
+
+def _find_command(cmd: str) -> Optional[str]:
+    """Find an external command in PATH with caching.
+    
+    Args:
+        cmd: Command name to find
+        
+    Returns:
+        Path to command if found, None otherwise
+    """
+    if cmd in _command_cache:
+        return _command_cache[cmd]
+    result = shutil.which(cmd)
+    _command_cache[cmd] = result
+    return result
 
 # =============================================================================
 # Configuration
@@ -172,6 +201,317 @@ class Icons:
     SHUFFLE: str = "\uf074"
     REPEAT: str = "\uf079"
     REPEAT_ONE: str = "\uf01d"
+    MUSIC_NOTE: str = "\uf001"
+    IMAGE: str = "\uf1c5"
+
+
+# Terminal Image Protocols
+# =============================================================================
+class TerminalImageProtocol:
+    """Support for various terminal image display protocols."""
+    
+    KITTY = "kitty"
+    ITERM2 = "iterm2"
+    SIXEL = "sixel"
+    URXVT = "urxvt"
+    KONSOLE = "konsole"
+    UEBERZUG = "ueberzug"
+    NONE = "none"
+    
+    _detected: Optional[str] = None
+    
+    @classmethod
+    def detect(cls) -> str:
+        """Detect the best available image protocol for this terminal."""
+        if cls._detected:
+            return cls._detected
+        
+        term = os.environ.get("TERM_PROGRAM", "")
+        term_var = os.environ.get("TERM", "")
+        colorterm = os.environ.get("COLORTERM", "")
+        
+        # Check for Kitty-specific environment variable
+        if os.environ.get("KITTY_WINDOW_ID"):
+            cls._detected = cls.KITTY
+            return cls._detected
+        
+        if "iTerm.app" in term or "iTerm2" in term:
+            cls._detected = cls.ITERM2
+            return cls._detected
+        
+        if "kitty" in term_var.lower() or "kitty" in colorterm.lower():
+            cls._detected = cls.KITTY
+            return cls._detected
+        
+        if "sixel" in colorterm.lower() or "sixel" in term_var.lower():
+            cls._detected = cls.SIXEL
+            return cls._detected
+        
+        if "konsole" in term_var.lower():
+            cls._detected = cls.KONSOLE
+            return cls._detected
+        
+        if "rxvt" in term_var.lower() or "urxvt" in term_var.lower():
+            cls._detected = cls.URXVT
+            return cls._detected
+        
+        if cls._check_ueberzug_support():
+            cls._detected = cls.UEBERZUG
+            return cls._detected
+        
+        if "xterm" in term_var.lower():
+            if cls._check_iterm2_inline():
+                cls._detected = cls.ITERM2
+                return cls._detected
+            if cls._check_sixel_support():
+                cls._detected = cls.SIXEL
+                return cls._detected
+        
+        cls._detected = cls.NONE
+        return cls._detected
+    
+    @classmethod
+    def _check_iterm2_inline(cls) -> bool:
+        """Check if iTerm2 inline image support is available."""
+        return bool(os.environ.get("ITERM2_SOCKET_PATH"))
+    
+    @classmethod
+    def _check_sixel_support(cls) -> bool:
+        """Check if Sixel is supported."""
+        return False
+    
+    @classmethod
+    def _check_ueberzug_support(cls) -> bool:
+        """Check if ueberzug is available."""
+        result = subprocess.run(
+            ["which", "ueberzug"],
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
+    
+    @classmethod
+    def get_protocol_name(cls) -> str:
+        """Get human-readable protocol name."""
+        name = cls.detect()
+        return {
+            cls.KITTY: "Kitty",
+            cls.ITERM2: "iTerm2",
+            cls.SIXEL: "Sixel",
+            cls.URXVT: "urxvt",
+            cls.KONSOLE: "Konsole",
+            cls.UEBERZUG: "ueberzug",
+            cls.NONE: "None (disabled)",
+        }.get(name, "Unknown")
+
+
+def print_image_iterm2(path: str, width: Optional[int] = None, height: Optional[int] = None) -> str:
+    """Print image using iTerm2 inline image protocol.
+    
+    Args:
+        path: Path to image file
+        width: Optional width in cells
+        height: Optional height in cells
+        
+    Returns:
+        Escape sequence string
+    """
+    try:
+        import base64
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+        
+        args = []
+        if width:
+            args.append(f"width={width}")
+        if height:
+            args.append(f"height={height}")
+        
+        param = ";".join(args) if args else ""
+        
+        return f"\033]1337;File=inline=1{';' + param if param else ''}:{data}\a"
+    except Exception:
+        return ""
+
+
+def print_image_kitty(path: str, width: Optional[int] = None, height: Optional[int] = None,
+                     x: int = 0, y: int = 0, clear: bool = False) -> str:
+    """Print image using Kitty inline graphics protocol via kitty icat.
+    
+    Args:
+        path: Path to image file
+        width: Optional width in cells
+        height: Optional height in cells
+        x: X position (cells from left)
+        y: Y position (cells from top)
+        clear: Clear existing image first
+        
+    Returns:
+        Command string to display image via kitty icat
+    """
+    try:
+        cmd = ["kitty", "+kitten", "icat"]
+        
+        if clear:
+            cmd.append("--clear")
+        
+        if width or height:
+            place = f"{width or 40}x{height or 20}@{x or 0}x{y or 0}"
+            cmd.extend(["--place", place])
+        
+        cmd.append(path)
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            return result.stdout
+        return ""
+    except Exception:
+        return ""
+
+
+def print_image_sixel(path: str) -> str:
+    """Print image using Sixel graphics protocol (requires img2sixel).
+    
+    Args:
+        path: Path to image file
+        
+    Returns:
+        Escape sequence string
+    """
+    try:
+        result = subprocess.run(
+            ["img2sixel", "-w", "60", path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout
+        return ""
+    except Exception:
+        return ""
+
+
+def print_image_urxvt(path: str) -> str:
+    """Print image using urxvt background extension.
+    
+    Args:
+        path: Path to image file
+        
+    Returns:
+        Escape sequence string
+    """
+    try:
+        import base64
+        with open(path, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+        
+        return f"\033]20;{path};100;oT\a"
+    except Exception:
+        return ""
+
+
+def print_image_konsole(path: str) -> str:
+    """Print image using Konsole background image feature.
+    
+    Args:
+        path: Path to image file
+        
+    Returns:
+        Escape sequence string
+    """
+    try:
+        return f"\033]40;file://{path}\a"
+    except Exception:
+        return ""
+
+
+def print_image_ueberzug(path: str, width: Optional[int] = None, height: Optional[int] = None,
+                        x: int = 0, y: int = 0) -> str:
+    """Print image using ueberzug.
+    
+    Args:
+        path: Path to image file
+        width: Optional width in cells
+        height: Optional height in cells
+        x: X position (cells from left)
+        y: Y position (cells from top)
+        
+    Returns:
+        Command string for ueberzug (not an escape sequence)
+    """
+    import json
+    
+    action = {
+        "action": "add",
+        "identifier": "danktunes-cover",
+        "path": path,
+        "x": x,
+        "y": y,
+        "scaler": "contain"
+    }
+    
+    if width:
+        action["width"] = width
+    if height:
+        action["height"] = height
+    
+    return json.dumps(action)
+
+
+def clear_ueberzug() -> str:
+    """Clear ueberzug image."""
+    import json
+    return json.dumps({"action": "remove", "identifier": "danktunes-cover"})
+
+
+def print_image(path: str, width: Optional[int] = None, height: Optional[int] = None,
+                x: int = 0, y: int = 0) -> str:
+    """Print image using the best available protocol.
+    
+    Args:
+        path: Path to image file
+        width: Optional width in cells
+        height: Optional height in cells
+        x: X position (cells from left)
+        y: Y position (cells from top)
+        
+    Returns:
+        Escape sequence string, or empty string if not supported
+    """
+    protocol = TerminalImageProtocol.detect()
+    
+    if protocol == TerminalImageProtocol.ITERM2:
+        return print_image_iterm2(path, width, height)
+    elif protocol == TerminalImageProtocol.KITTY:
+        return print_image_kitty(path, width, height, x, y)
+    elif protocol == TerminalImageProtocol.SIXEL:
+        return print_image_sixel(path)
+    elif protocol == TerminalImageProtocol.URXVT:
+        return print_image_urxvt(path)
+    elif protocol == TerminalImageProtocol.KONSOLE:
+        return print_image_konsole(path)
+    elif protocol == TerminalImageProtocol.UEBERZUG:
+        return print_image_ueberzug(path, width, height, x, y)
+    
+    return ""
+
+
+def clear_images() -> str:
+    """Clear all inline images.
+    
+    Returns:
+        Escape sequence string
+    """
+    protocol = TerminalImageProtocol.detect()
+    
+    if protocol == TerminalImageProtocol.KITTY:
+        return "\033_Ga\033\\"
+    elif protocol == TerminalImageProtocol.ITERM2:
+        return "\033]1337;CleanAllFiles\a"
+    
+    return ""
 
 
 # =============================================================================
@@ -188,6 +528,8 @@ class TreeItem:
         children: List of child TreeItems (for directories)
         expanded: Whether the directory is expanded
     """
+    
+    __slots__ = ('path', 'level', 'is_dir', 'parent', 'children', 'expanded')
 
     def __init__(
         self,
@@ -244,6 +586,7 @@ class PlayerState:
     # Playlist
     playlist: List[str] = field(default_factory=list)
     playlist_index: int = 0
+    playlist_index_map: Dict[str, int] = field(default_factory=dict)
     playlist_scroll_offset: int = 0
     shuffle_mode: bool = False
     show_playlist: bool = False
@@ -266,6 +609,20 @@ class PlayerState:
     search_cursor: int = 0
     recursive_search_results: List[Dict[str, Any]] = field(default_factory=list)
     search_mode: str = "flat"  # "flat" or "recursive"
+
+    # Album Art Overlay
+    show_album_art: bool = False
+
+    # Sorting
+    sort_by: str = "name"  # "name", "date", "duration"
+    sort_reverse: bool = False
+
+    # Favorites
+    favorites: List[str] = field(default_factory=list)
+
+    # Smart shuffle history
+    shuffle_history: List[str] = field(default_factory=list)
+    shuffle_history_max: int = 20
 
 
 # =============================================================================
@@ -387,6 +744,11 @@ C_RESET = COLOR_MAP["reset"]
 USE_BORDERS = _config.get("ui", {}).get("borders", False)
 HEADER_GLYPH = _config.get("ui", {}).get("header_glyph", "😎")
 
+# Album art options
+ALBUM_ART_ENABLED = _config.get("album_art", {}).get("enabled", True)
+ALBUM_ART_WIDTH = _config.get("album_art", {}).get("width", 20)
+last_album_art_path = None  # Track last displayed album art for overlay
+
 # Notification options
 NOTIFICATIONS_ENABLED = _config.get("notifications", {}).get("enabled", False)
 NOTIFICATION_GLYPH = _config.get("notifications", {}).get("glyph", "🎵")
@@ -401,6 +763,80 @@ BORDER_V = "│"  # Vertical
 BORDER_X = "┼"  # Cross (for column dividers)
 BORDER_LT = "├"  # Left T (for section dividers)
 BORDER_RT = "┤"  # Right T (for section dividers)
+
+
+def _get_state_file() -> Path:
+    """Get the path to the state file."""
+    return CONFIG_DIR / "state.json"
+
+
+def save_state() -> bool:
+    """Save current player state to disk.
+
+    Saves: volume, last played track, position, expanded directories.
+
+    Returns:
+        True if state was saved successfully, False otherwise
+    """
+    try:
+        state_data = {
+            "volume": state.volume,
+            "last_track": state.current_path,
+            "last_position": state.current_position,
+            "expanded_dirs": list(state.expanded_dirs),
+            "shuffle_mode": state.shuffle_mode,
+            "repeat_mode": state.repeat_mode,
+        }
+
+        state_file = _get_state_file()
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(state_file, "w") as f:
+            import json
+            json.dump(state_data, f)
+
+        logger.debug(f"State saved to {state_file}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to save state: {e}")
+        return False
+
+
+def load_state() -> bool:
+    """Load saved player state from disk.
+
+    Loads: volume, last played track, position, expanded directories.
+
+    Returns:
+        True if state was loaded successfully, False otherwise
+    """
+    try:
+        state_file = _get_state_file()
+        if not state_file.exists():
+            logger.debug("No saved state found")
+            return False
+
+        with open(state_file, "r") as f:
+            import json
+            state_data = json.load(f)
+
+        if "volume" in state_data:
+            state.volume = max(0, min(100, state_data["volume"]))
+
+        if "expanded_dirs" in state_data:
+            state.expanded_dirs = set(state_data["expanded_dirs"])
+
+        if "shuffle_mode" in state_data:
+            state.shuffle_mode = state_data["shuffle_mode"]
+
+        if "repeat_mode" in state_data:
+            state.repeat_mode = state_data["repeat_mode"]
+
+        logger.debug(f"State loaded from {state_file}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to load state: {e}")
+        return False
 
 
 def _get_terminal_size() -> tuple:
@@ -446,9 +882,7 @@ def _send_notification(title: str, message: str) -> None:
         return
 
     try:
-        import shutil
-
-        notify_send = shutil.which("notify-send")
+        notify_send = _find_command("notify-send")
         if notify_send:
             subprocess.run(
                 [
@@ -470,21 +904,21 @@ def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
 
 
+@lru_cache(maxsize=4096)
 def _char_display_width(ch: str) -> int:
     """Return display width of a single Unicode character (0, 1 or 2)."""
     if not ch:
         return 0
-    # Treat non-spacing marks and format chars as zero width
     cat = unicodedata.category(ch)
     if cat in ("Mn", "Me", "Cf"):
         return 0
-    # East Asian Wide/Fullwidth characters (and most emoji) are width 2
     ea = unicodedata.east_asian_width(ch)
     if ea in ("F", "W"):
         return 2
     return 1
 
 
+@lru_cache(maxsize=4096)
 def _display_width(text: str) -> int:
     """Return the visible terminal width of `text`, ignoring ANSI escapes."""
     s = _strip_ansi(text)
@@ -502,20 +936,14 @@ def _truncate_to_width(text: str, max_width: int, ellipsis: str = "...") -> str:
         return text
 
     e_width = _display_width(ellipsis)
+    
     if e_width >= max_width:
-        # Not enough room for ellipsis: hard-truncate
+        # Hard-truncate without ellipsis
         target = max_width
-        out = []
-        cur = 0
-        for ch in text:
-            w = _char_display_width(ch)
-            if cur + w > target:
-                break
-            out.append(ch)
-            cur += w
-        return "".join(out)
-
-    target = max_width - e_width
+    else:
+        # Leave room for ellipsis
+        target = max_width - e_width
+    
     out = []
     cur = 0
     for ch in text:
@@ -524,6 +952,9 @@ def _truncate_to_width(text: str, max_width: int, ellipsis: str = "...") -> str:
             break
         out.append(ch)
         cur += w
+    
+    if e_width >= max_width:
+        return "".join(out)
     return "".join(out) + ellipsis
 
 
@@ -536,32 +967,9 @@ def get_duration(path: str) -> Optional[float]:
     Returns:
         Duration in seconds, or None if unavailable
     """
-    try:
-        result = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-                str(path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=1,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return float(result.stdout.strip())
-        return None
-    except (
-        subprocess.TimeoutExpired,
-        subprocess.CalledProcessError,
-        OSError,
-        ValueError,
-    ):
-        return None
+    # Use combined function for efficiency
+    duration, _, _ = get_duration_and_metadata(path)
+    return duration
 
 
 def get_metadata(path: str) -> Tuple[Optional[str], Optional[str]]:
@@ -573,10 +981,68 @@ def get_metadata(path: str) -> Tuple[Optional[str], Optional[str]]:
     Returns:
         Tuple of (artist, title), or (None, None) if unavailable
     """
+    _, artist, title = get_duration_and_metadata(path)
+    return (artist, title)
+
+
+def _get_duration_mpg123(path: str) -> Optional[float]:
+    """Get duration using mpg123 -t (fast test mode).
+    
+    Args:
+        path: Path to the audio file
+        
+    Returns:
+        Duration in seconds, or None if unavailable
+    """
+    mpg123 = _find_command("mpg123")
+    if not mpg123:
+        return None
+    
+    try:
+        result = subprocess.run(
+            [mpg123, "-t", "--skip-printing-frames", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        if result.returncode == 0 or result.returncode == 1:
+            for line in result.stderr.split("\n"):
+                if " Frames" in line or "frames" in line.lower():
+                    import re
+                    match = re.search(r'(\d+)\s*[Ff]rames?', line)
+                    if match:
+                        frames = int(match.group(1))
+                        return frames * 1152 / 44100
+            for line in result.stderr.split("\n"):
+                if "Total time:" in line:
+                    import re
+                    match = re.search(r'(\d+):(\d+)', line)
+                    if match:
+                        mins = int(match.group(1))
+                        secs = int(match.group(2))
+                        return mins * 60 + secs
+        return None
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def _get_metadata_ffprobe(path: str) -> Tuple[Optional[str], Optional[str]]:
+    """Get artist/title metadata using ffprobe (separate call for metadata only).
+    
+    Args:
+        path: Path to the audio file
+        
+    Returns:
+        Tuple of (artist, title)
+    """
+    ffprobe = _find_command("ffprobe")
+    if not ffprobe:
+        return (None, None)
+    
     try:
         result = subprocess.run(
             [
-                "ffprobe",
+                ffprobe,
                 "-v",
                 "error",
                 "-show_entries",
@@ -587,21 +1053,188 @@ def get_metadata(path: str) -> Tuple[Optional[str], Optional[str]]:
             ],
             capture_output=True,
             text=True,
-            timeout=1,
+            timeout=2,
         )
         if result.returncode == 0:
-            lines = result.stdout.strip().split("\n")
-            artist = lines[0].strip() if len(lines) > 0 and lines[0].strip() else None
-            title = lines[1].strip() if len(lines) > 1 and lines[1].strip() else None
+            lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip()]
+            artist = lines[0] if lines and lines[0] else None
+            title = lines[1] if len(lines) > 1 and lines[1] else None
             return (artist, title)
         return (None, None)
-    except (
-        subprocess.TimeoutExpired,
-        subprocess.CalledProcessError,
-        OSError,
-        ValueError,
-    ):
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
         return (None, None)
+
+
+@lru_cache(maxsize=4096)
+def get_duration_and_metadata(path: str) -> Tuple[Optional[float], Optional[str], Optional[str]]:
+    """Get duration using mpg123 and metadata using ffprobe.
+
+    Args:
+        path: Path to the audio file
+
+    Returns:
+        Tuple of (duration, artist, title)
+    """
+    duration = _get_duration_mpg123(path)
+    artist, title = _get_metadata_ffprobe(path)
+    return (duration, artist, title)
+
+
+_album_art_cache: Dict[str, Optional[str]] = {}
+_cover_names = frozenset([
+    "cover.jpg", "cover.png", "cover.jpeg", "cover.webp",
+    "folder.jpg", "folder.png", "folder.jpeg", "folder.webp",
+    "album.jpg", "album.png", "album.jpeg", "album.webp",
+    "front.jpg", "front.png", "front.jpeg", "front.webp",
+])
+_dir_cover_cache: Dict[str, Optional[str]] = {}
+
+
+def get_album_art(path: str) -> Optional[str]:
+    """Get album art for an audio file.
+    
+    First checks for local cover images in the same directory,
+    then tries to extract embedded art using ffmpeg.
+    
+    Args:
+        path: Path to the audio file
+        
+    Returns:
+        Path to album art image, or None if not found
+    """
+    if path in _album_art_cache:
+        return _album_art_cache[path]
+    
+    audio_path = Path(path)
+    if not audio_path.exists():
+        try:
+            audio_path = Path(path).resolve()
+        except Exception:
+            _album_art_cache[path] = None
+            return None
+    
+    directory = str(audio_path.parent)
+    
+    if directory in _dir_cover_cache:
+        local_cover = _dir_cover_cache[directory]
+    else:
+        local_cover = _find_local_album_art(audio_path, directory)
+        _dir_cover_cache[directory] = local_cover
+    
+    if local_cover:
+        _album_art_cache[path] = local_cover
+        return local_cover
+    
+    result = _extract_embedded_album_art(path)
+    _album_art_cache[path] = result
+    return result
+
+
+def _find_local_album_art(audio_path: Path, directory: str) -> Optional[str]:
+    """Look for local cover images in the track's directory."""
+    try:
+        dir_path = Path(directory)
+        if not dir_path.is_dir():
+            return None
+        
+        for name in os.listdir(dir_path):
+            if name.lower() in _cover_names:
+                cover_path = dir_path / name
+                if cover_path.is_file():
+                    return str(cover_path)
+    except OSError:
+        pass
+    return None
+
+
+def _extract_embedded_album_art(path: str) -> Optional[str]:
+    """Extract embedded album art using ffmpeg."""
+    import tempfile
+    
+    try:
+        audio_path = Path(path)
+        if not audio_path.exists():
+            audio_path = Path(path).resolve()
+        
+        directory = audio_path.parent
+        
+        with tempfile.NamedTemporaryFile(
+            suffix=".jpg", 
+            dir=directory, 
+            delete=False
+        ) as tmp:
+            tmp_path = tmp.name
+        
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i", str(audio_path),
+                "-an",
+                "-vcodec", "copy",
+                tmp_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        
+        if result.returncode == 0 and Path(tmp_path).exists() and Path(tmp_path).stat().st_size > 0:
+            return tmp_path
+        else:
+            if Path(tmp_path).exists():
+                try:
+                    Path(tmp_path).unlink()
+                except OSError:
+                    pass
+            return None
+            
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
+        return None
+
+
+def clear_album_art_cache() -> None:
+    """Clear the album art cache."""
+    global _album_art_cache
+    _album_art_cache = {}
+
+
+def _collect_audio_files(items: List[TreeItem]) -> List[str]:
+    """Collect all audio file paths from tree items.
+    
+    Args:
+        items: List of tree items
+        
+    Returns:
+        List of audio file paths
+    """
+    paths = []
+    for item in items:
+        if item.is_dir and item.children:
+            paths.extend(_collect_audio_files(item.children))
+        else:
+            paths.append(str(item.path))
+    return paths
+
+
+def _scan_duration_batch(paths: List[str], cached_paths: Optional[Set[str]] = None) -> Dict[str, float]:
+    """Scan durations for a batch of paths.
+    
+    Args:
+        paths: List of audio file paths
+        cached_paths: Set of already cached paths (for exclusion)
+        
+    Returns:
+        Dictionary mapping path to duration
+    """
+    results = {}
+    for path_str in paths:
+        if cached_paths and path_str in cached_paths:
+            continue
+        duration = get_duration(path_str)
+        if duration:
+            results[path_str] = duration
+    return results
 
 
 def scan_all_durations(items: List[TreeItem]) -> int:
@@ -613,24 +1246,52 @@ def scan_all_durations(items: List[TreeItem]) -> int:
     Returns:
         Number of durations cached
     """
+    import concurrent.futures
+    
+    audio_paths = _collect_audio_files(items)
+    if not audio_paths:
+        return 0
+    
+    cached_paths = set(state.track_durations.keys())
+    uncached = [p for p in audio_paths if p not in cached_paths]
+    if not uncached:
+        return 0
+    
     count = 0
-    for item in items:
-        if item.is_dir and item.children:
-            count += scan_all_durations(item.children)
-        else:
-            path_str = str(item.path)
-            if path_str not in state.track_durations:
-                duration = get_duration(path_str)
-                if duration:
-                    if len(state.track_durations) > MAX_TRACK_DURATIONS:
-                        # Use OrderedDict's LRU behavior - remove oldest items
-                        keys_to_remove = list(state.track_durations.keys())[
-                            :len(state.track_durations) - MAX_TRACK_DURATIONS
-                        ]
-                        for key in keys_to_remove:
-                            del state.track_durations[key]
-                    state.track_durations[path_str] = duration
-                    count += 1
+    
+    if ENABLE_PARALLEL_DURATION_SCAN and len(uncached) > DURATION_SCAN_BATCH_SIZE:
+        batches = [
+            uncached[i:i + DURATION_SCAN_BATCH_SIZE] 
+            for i in range(0, len(uncached), DURATION_SCAN_BATCH_SIZE)
+        ]
+        
+        with concurrent.futures.ProcessPoolExecutor(max_workers=DURATION_SCAN_WORKERS) as executor:
+            futures = [executor.submit(_scan_duration_batch, batch, cached_paths) for batch in batches]
+            
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    results = future.result()
+                    for path_str, duration in results.items():
+                        if len(state.track_durations) >= MAX_TRACK_DURATIONS:
+                            for _ in range(CACHE_TRIM_SIZE):
+                                if state.track_durations:
+                                    state.track_durations.popitem(last=False)
+                        
+                        state.track_durations[path_str] = duration
+                        count += 1
+                except Exception:
+                    pass
+    else:
+        for path_str in uncached:
+            duration = get_duration(path_str)
+            if duration:
+                if len(state.track_durations) >= MAX_TRACK_DURATIONS:
+                    for _ in range(CACHE_TRIM_SIZE):
+                        if state.track_durations:
+                            state.track_durations.popitem(last=False)
+                state.track_durations[path_str] = duration
+                count += 1
+    
     return count
 
 
@@ -648,10 +1309,17 @@ def flatten_tree(
     """
     if result is None:
         result = []
-    for item in items:
+    
+    # Use iterative approach with stack for better performance
+    stack = list(reversed(items))
+    
+    while stack:
+        item = stack.pop()
         result.append(item)
         if item.is_dir and item.expanded and item.children:
-            flatten_tree(item.children, result)
+            # Add children in reverse order so they're processed in correct order
+            stack.extend(reversed(item.children))
+    
     return result
 
 
@@ -669,6 +1337,60 @@ def _format_duration(seconds: float) -> str:
     return f"{mins:02d}:{secs:02d}"
 
 
+# Directory scan cache: path -> (mtime, items) - using OrderedDict for O(1) LRU eviction
+_dir_cache: OrderedDict[str, Tuple[float, List["TreeItem"]]] = OrderedDict()
+DIR_CACHE_MAX_SIZE: int = 100
+
+
+def _get_cached_directory(path: Path, level: int) -> Optional[List["TreeItem"]]:
+    """Get cached directory scan results if valid.
+    
+    Args:
+        path: Directory path
+        level: Nesting level
+        
+    Returns:
+        Cached items or None if cache is invalid/missing
+    """
+    path_str = str(path)
+    if path_str not in _dir_cache:
+        return None
+    
+    try:
+        mtime = os.path.getmtime(path_str)
+        cached_mtime, items = _dir_cache[path_str]
+        if mtime != cached_mtime:
+            del _dir_cache[path_str]
+            return None
+        _dir_cache.move_to_end(path_str)
+        return items
+    except OSError:
+        return None
+
+
+def _cache_directory(path: Path, level: int, items: List["TreeItem"]) -> None:
+    """Cache directory scan results.
+    
+    Args:
+        path: Directory path  
+        level: Nesting level
+        items: Scanned items
+    """
+    path_str = str(path)
+    
+    if path_str in _dir_cache:
+        _dir_cache.move_to_end(path_str)
+    
+    while len(_dir_cache) >= DIR_CACHE_MAX_SIZE:
+        _dir_cache.popitem(last=False)
+    
+    try:
+        mtime = os.path.getmtime(str(path))
+        _dir_cache[path_str] = (mtime, items)
+    except OSError:
+        pass
+
+
 def scan_directory(path: Path, level: int = 0) -> List[TreeItem]:
     """Scan a directory and return tree items.
 
@@ -679,18 +1401,30 @@ def scan_directory(path: Path, level: int = 0) -> List[TreeItem]:
     Returns:
         List of tree items
     """
+    cached = _get_cached_directory(path, level)
+    if cached is not None:
+        return cached
+    
     items = []
+    dirs = []
+    files = []
+    
     try:
-        entries = sorted(os.listdir(path))
-
-        dirs = [e for e in entries if os.path.isdir(os.path.join(path, e))]
-        files = [
-            e
-            for e in entries
-            if os.path.isfile(os.path.join(path, e))
-            and Path(e).suffix.lower() in AUDIO_EXTENSIONS
-        ]
-
+        with os.scandir(path) as entries:
+            for entry in entries:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        dirs.append(entry.name)
+                    elif entry.is_file(follow_symlinks=False):
+                        suffix = Path(entry.name).suffix.lower()
+                        if suffix in AUDIO_EXTENSIONS:
+                            files.append(entry.name)
+                except (OSError, PermissionError):
+                    continue
+        
+        dirs.sort()
+        files.sort()
+        
         for entry in dirs:
             full_path = os.path.join(path, entry)
             item = TreeItem(full_path, level, True)
@@ -704,6 +1438,9 @@ def scan_directory(path: Path, level: int = 0) -> List[TreeItem]:
             items.append(TreeItem(full_path, level, False))
     except (OSError, PermissionError):
         pass
+    
+    _cache_directory(path, level, items)
+    
     return items
 
 
@@ -750,7 +1487,7 @@ def play(path: Union[str, Path], start_pos: int = 0, notify: bool = True) -> boo
         ext = resolved_path.suffix.lower()
 
         if ext == ".wav":
-            aplay = shutil.which("aplay")
+            aplay = _find_command("aplay")
             if aplay:
                 cmd = [aplay, str(resolved_path)]
                 state.process = subprocess.Popen(
@@ -764,7 +1501,7 @@ def play(path: Union[str, Path], start_pos: int = 0, notify: bool = True) -> boo
                 state.current_file = "Error: aplay not found"
                 return False
         else:
-            mpg123 = shutil.which("mpg123")
+            mpg123 = _find_command("mpg123")
             if not mpg123:
                 state.current_file = "Error: mpg123 not found"
                 return False
@@ -806,8 +1543,8 @@ def play(path: Union[str, Path], start_pos: int = 0, notify: bool = True) -> boo
             if duration:
                 state.track_durations[path_str] = duration
 
-        if path_str in state.playlist:
-            state.playlist_index = state.playlist.index(path_str)
+        if path_str in state.playlist_index_map:
+            state.playlist_index = state.playlist_index_map[path_str]
 
         # Extract metadata
         artist, title = get_metadata(path_str)
@@ -927,15 +1664,8 @@ def toggle_pause() -> None:
             item = state.flat_items[state.cursor]
             if not item.is_dir:
                 play(str(item.path))
-        # Resume playback if paused
-        if hasattr(state, "paused") and state.paused:
-            if state.current_path and state.current_position > 0:
-                play(state.current_path, int(state.current_position))
-                state.paused = False
-        elif state.cursor < len(state.flat_items):
-            item = state.flat_items[state.cursor]
-            if not item.is_dir:
-                play(str(item.path))
+
+
 
 
 # =============================================================================
@@ -950,6 +1680,14 @@ def add_to_playlist(path: str) -> None:
         path: Path to the audio file
     """
     state.playlist.append(path)
+    state.playlist_index_map[path] = len(state.playlist) - 1
+
+
+def _rebuild_playlist_map() -> None:
+    """Rebuild the playlist index map for O(1) lookups."""
+    state.playlist_index_map = {
+        path: idx for idx, path in enumerate(state.playlist)
+    }
 
 
 def remove_from_playlist(index: int) -> None:
@@ -959,7 +1697,9 @@ def remove_from_playlist(index: int) -> None:
         index: Index of the track to remove
     """
     if 0 <= index < len(state.playlist):
-        state.playlist.pop(index)
+        removed_path = state.playlist.pop(index)
+        state.playlist_index_map.pop(removed_path, None)
+        _rebuild_playlist_map()
         if state.playlist_index >= len(state.playlist):
             state.playlist_index = 0
             state.playlist_scroll_offset = 0
@@ -968,6 +1708,7 @@ def remove_from_playlist(index: int) -> None:
 def clear_playlist() -> None:
     """Clear the entire playlist."""
     state.playlist = []
+    state.playlist_index_map = {}
     state.playlist_index = 0
     state.playlist_scroll_offset = 0
 
@@ -975,7 +1716,6 @@ def clear_playlist() -> None:
 def toggle_shuffle_mode() -> None:
     """Toggle shuffle mode on/off."""
     state.shuffle_mode = not state.shuffle_mode
-    import random
 
     if state.shuffle_mode and state.playlist:
         current = (
@@ -984,11 +1724,12 @@ def toggle_shuffle_mode() -> None:
             else None
         )
         random.shuffle(state.playlist)
-        if current and current in state.playlist:
-            state.playlist_index = state.playlist.index(current)
+        if current and current in state.playlist_index_map:
+            state.playlist_index = state.playlist_index_map[current]
         else:
             state.playlist_index = 0
             state.playlist_scroll_offset = 0
+        _rebuild_playlist_map()
 
 
 def toggle_repeat_mode() -> None:
@@ -997,6 +1738,86 @@ def toggle_repeat_mode() -> None:
     current_idx = modes.index(state.repeat_mode) if state.repeat_mode in modes else 0
     next_idx = (current_idx + 1) % len(modes)
     state.repeat_mode = modes[next_idx]
+
+
+def cycle_sort_mode() -> None:
+    """Cycle through sort modes: name -> date -> duration -> name."""
+    modes = ["name", "date", "duration"]
+    current_idx = modes.index(state.sort_by) if state.sort_by in modes else 0
+    next_idx = (current_idx + 1) % len(modes)
+    state.sort_by = modes[next_idx]
+
+
+def sort_playlist() -> None:
+    """Sort the current playlist by the current sort mode."""
+    if not state.playlist:
+        return
+
+    current_track = state.playlist[state.playlist_index] if state.playlist_index < len(state.playlist) else None
+
+    if state.sort_by == "name":
+        state.playlist.sort(key=lambda x: os.path.basename(x).lower(), reverse=state.sort_reverse)
+    elif state.sort_by == "duration":
+        state.playlist.sort(
+            key=lambda x: state.track_durations.get(x, 0),
+            reverse=state.sort_reverse
+        )
+    elif state.sort_by == "date":
+        state.playlist.sort(
+            key=lambda x: os.path.getmtime(x) if os.path.exists(x) else 0,
+            reverse=state.sort_reverse
+        )
+
+    if current_track and current_track in state.playlist_index_map:
+        state.playlist_index = state.playlist_index_map[current_track]
+    _rebuild_playlist_map()
+
+
+def reverse_sort() -> None:
+    """Toggle sort direction."""
+    state.sort_reverse = not state.sort_reverse
+    sort_playlist()
+
+
+def toggle_favorite() -> None:
+    """Add or remove current track from favorites."""
+    if not state.current_path:
+        return
+
+    if state.current_path in state.favorites:
+        state.favorites.remove(state.current_path)
+    else:
+        state.favorites.append(state.current_path)
+
+
+def is_favorite(path: str) -> bool:
+    """Check if a track is in favorites."""
+    return path in state.favorites
+
+
+def smart_shuffle() -> None:
+    """Shuffle playlist avoiding recently played tracks."""
+    if not state.playlist:
+        return
+
+    import random
+
+    current = state.playlist[state.playlist_index] if state.playlist_index < len(state.playlist) else None
+    recent = set(state.shuffle_history[-state.shuffle_history_max:])
+
+    available = [t for t in state.playlist if t not in recent]
+    if not available:
+        available = list(state.playlist)
+
+    random.shuffle(available)
+
+    if current in available:
+        available.remove(current)
+        available.insert(0, current)
+
+    state.playlist = available
+    if current:
+        state.playlist_index = 0
 
 
 def adjust_volume(delta: int) -> None:
@@ -1100,23 +1921,19 @@ def toggle_playlist_view() -> None:
         state.show_playlist = False
 
 
+def toggle_album_art_view() -> None:
+    """Toggle album art overlay visibility."""
+    if not state.show_album_art:
+        state.show_album_art = True
+    else:
+        state.show_album_art = False
+
+
 # Playlist file functions (save, load, list, import)
 # =============================================================================
 
 
 def save_playlist(name: str) -> bool:
-    """Save the current playlist to an M3U file.
-
-    Args:
-        name: Name of the playlist (without extension)
-
-    Returns:
-        True if saved successfully, False otherwise
-    """
-    return save_playlist_m3u(name)
-
-
-def save_playlist_m3u(name: str) -> bool:
     """Save current playlist to M3U file.
 
     Args:
@@ -1161,18 +1978,6 @@ def save_playlist_m3u(name: str) -> bool:
 
 
 def load_playlist(name: str) -> bool:
-    """Load a playlist from M3U file.
-
-    Args:
-        name: Name of the playlist (without extension)
-
-    Returns:
-        True if loaded successfully, False otherwise
-    """
-    return load_playlist_m3u(name)
-
-
-def load_playlist_m3u(name: str) -> bool:
     """Load playlist from M3U file.
 
     Args:
@@ -1708,7 +2513,14 @@ def _draw_ranger_header(inner_width: int) -> None:
 
     if state.process and state.process.poll() is None:
         speed_str = f" [{state.effect_speed}x]" if state.effect_speed != 1.0 else ""
-        fixed = f"{HEADER_GLYPH}  "
+        
+        album_art = ""
+        if state.current_path:
+            art_path = get_album_art(state.current_path)
+            if art_path:
+                album_art = f" {Icons.MUSIC_NOTE}"
+        
+        fixed = f"{HEADER_GLYPH}{album_art} "
         fixed_len = (
             _display_width(fixed)
             + _display_width(speed_str)
@@ -1826,6 +2638,103 @@ def _draw_ranger_progress(inner_width: int) -> None:
             print(BORDER_V)
 
 
+def draw_album_art_overlay(force_redraw: bool = False) -> None:
+    """Draw album art overlay with track info and progress bar.
+    
+    Args:
+        force_redraw: If True, force redisplay of the image
+    """
+    global last_album_art_path
+    
+    if not ALBUM_ART_ENABLED:
+        print("\033[2J\033[H", end="", flush=True)
+        print(f"\n  {C_SECONDARY}Album art is disabled in config{C_RESET}\n")
+        return
+    
+    if not state.current_path:
+        print("\033[2J\033[H", end="", flush=True)
+        print(f"\n  {C_SECONDARY}No track playing{C_RESET}\n")
+        return
+    
+    art_path = get_album_art(state.current_path)
+    
+    protocol = TerminalImageProtocol.detect()
+    lines, cols = _get_terminal_size()
+    img_height = max(10, lines - 10)
+    img_width = max(20, cols - 4)
+    
+    # Clear screen
+    print("\033[2J\033[H", end="", flush=True)
+    
+    # Show album art path
+    print(f"  {HEADER_GLYPH}  Album Art\n")
+    
+    if art_path and Path(art_path).exists():
+        print(f"  {C_SECONDARY}Album art: {Path(art_path).name}{C_RESET}\n")
+    else:
+        print(f"  {C_SECONDARY}No album art found{C_RESET}\n")
+    
+    # Show track info
+    print(f"  {Icons.MUSIC_NOTE}  ", end="")
+    
+    if state.current_title:
+        print(f"{state.current_title}")
+        if state.current_artist:
+            print(f" - {state.current_artist}")
+    elif state.current_path:
+        print(f"{Path(state.current_path).name}")
+    else:
+        print("No track playing")
+    print()
+    
+    # Draw progress bar
+    _draw_album_art_progress(cols - 4)
+    
+    # Try to display image using kitty icat in background
+    if art_path and Path(art_path).exists() and protocol == TerminalImageProtocol.KITTY:
+        try:
+            subprocess.Popen(
+                ["kitty", "+kitten", "icat", "--place", f"{img_width}x{img_height}@1x1", art_path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            pass
+
+
+def _draw_album_art_progress(inner_width: int) -> None:
+    """Draw progress bar for album art overlay."""
+    if state.process and state.process.poll() is None and state.playback_start_time:
+        if hasattr(state, "paused") and state.paused:
+            elapsed = state.current_position
+        else:
+            elapsed = time.time() - state.playback_start_time + state.current_position
+        
+        duration = state.track_durations.get(state.current_path, 0) if state.current_path else 0
+        
+        if duration > 0:
+            time_text = f"{_format_duration(elapsed)} / {_format_duration(duration)}"
+            bar_width = max(20, inner_width - len(time_text) - 3)
+            
+            pct = min(elapsed / max(duration, 0.001), 1.0)
+            filled_chars = int(pct * (bar_width - 2))
+            bar = (
+                "["
+                + "=" * filled_chars
+                + ">"
+                + " " * (bar_width - filled_chars - 2)
+                + "]"
+            )
+            
+            print(f"  {time_text} {bar}")
+        else:
+            print()
+    else:
+        print(f"  {C_SECONDARY}No track playing{C_RESET}")
+    
+    print()
+
+
 # =============================================================================
 # Input Handling Functions
 # =============================================================================
@@ -1840,49 +2749,56 @@ def _handle_navigation(key: str) -> bool:
     """
     handled = False
     
-    if key == "j":
+    # Determine direction from key
+    is_down = key in ("j", "\x1b[B")  # j or down arrow
+    is_up = key in ("k", "\x1b[A")    # k or up arrow
+    
+    if is_down or is_up:
+        direction = 1 if is_down else -1
+        
         if state.show_playlist and state.playlist:
-            state.playlist_index = min(len(state.playlist) - 1, state.playlist_index + 1)
-            visible = min(VISIBLE_PLAYLIST_ITEMS, len(state.playlist))
-            if state.playlist_index >= state.playlist_scroll_offset + visible:
-                state.playlist_scroll_offset = state.playlist_index - visible + 1
+            _navigate_playlist(direction)
             handled = True
         elif state.flat_items:
-            state.cursor = min(len(state.flat_items) - 1, state.cursor + 1)
-            handled = True
-            
-    elif key == "k":
-        if state.show_playlist and state.playlist:
-            state.playlist_index = max(0, state.playlist_index - 1)
-            if state.playlist_index < state.playlist_scroll_offset:
-                state.playlist_scroll_offset = state.playlist_index
-            handled = True
-        elif state.flat_items:
-            state.cursor = max(0, state.cursor - 1)
-            handled = True
-            
-    elif key == "\x1b[A":  # Up arrow
-        if state.show_playlist and state.playlist:
-            state.playlist_index = max(0, state.playlist_index - 1)
-            if state.playlist_index < state.playlist_scroll_offset:
-                state.playlist_scroll_offset = state.playlist_index
-            handled = True
-        elif state.flat_items:
-            state.cursor = max(0, state.cursor - 1)
-            handled = True
-            
-    elif key == "\x1b[B":  # Down arrow
-        if state.show_playlist and state.playlist:
-            state.playlist_index = min(len(state.playlist) - 1, state.playlist_index + 1)
-            visible = min(VISIBLE_PLAYLIST_ITEMS, len(state.playlist))
-            if state.playlist_index >= state.playlist_scroll_offset + visible:
-                state.playlist_scroll_offset = state.playlist_index - visible + 1
-            handled = True
-        elif state.flat_items:
-            state.cursor = min(len(state.flat_items) - 1, state.cursor + 1)
+            state.cursor = _navigate_bounded(state.cursor, direction, len(state.flat_items))
             handled = True
             
     return handled
+
+
+def _navigate_playlist(direction: int) -> None:
+    """Navigate in playlist with scroll handling.
+    
+    Args:
+        direction: 1 for down, -1 for up
+    """
+    new_index = state.playlist_index + direction
+    if 0 <= new_index < len(state.playlist):
+        state.playlist_index = new_index
+        _adjust_playlist_scroll()
+
+
+def _adjust_playlist_scroll() -> None:
+    """Adjust playlist scroll offset to keep current item visible."""
+    visible = min(VISIBLE_PLAYLIST_ITEMS, len(state.playlist))
+    if state.playlist_index < state.playlist_scroll_offset:
+        state.playlist_scroll_offset = state.playlist_index
+    elif state.playlist_index >= state.playlist_scroll_offset + visible:
+        state.playlist_scroll_offset = state.playlist_index - visible + 1
+
+
+def _navigate_bounded(current: int, direction: int, max_items: int) -> int:
+    """Navigate with bounds checking.
+    
+    Args:
+        current: Current position
+        direction: 1 for down, -1 for up  
+        max_items: Maximum number of items
+        
+    Returns:
+        New position bounded to valid range
+    """
+    return max(0, min(max_items - 1, current + direction))
 
 
 def _handle_playback(key: str) -> bool:
@@ -2297,6 +3213,7 @@ def _handle_resize(signum: Optional[int] = None, frame: Any = None) -> None:
 def _exit_now(signum: Optional[int] = None, frame: Any = None) -> None:
     """Clean up and exit the player immediately."""
     stop_audio()
+    save_state()
     try:
         if state.process and state.process.poll() is None:
             os.killpg(os.getpgid(state.process.pid), signal.SIGTERM)
@@ -2350,11 +3267,15 @@ def main() -> None:
     # Register signal handler for terminal resize
     signal.signal(signal.SIGWINCH, _handle_resize)
 
+    # Load saved state (volume, expanded dirs, etc.)
+    load_state()
+
     # Redraw throttling to reduce flicker
     last_draw = time.time()
     last_cursor = -1
     last_show_playlist = state.show_playlist
     last_show_help = state.show_help
+    last_show_album_art = state.show_album_art
     last_playlist_len = len(state.playlist)
     last_playlist_index = state.playlist_index
     last_playlist_scroll = state.playlist_scroll_offset
@@ -2400,16 +3321,19 @@ def main() -> None:
                 or len(state.playlist) != last_playlist_len
                 or state.playlist_index != last_playlist_index
                 or state.playlist_scroll_offset != last_playlist_scroll
+                or state.show_album_art != last_show_album_art
                 or resize_received
             )
             resize_received = False
-            # Only redraw on interval if not showing static overlays (help/playlist)
+            # Only redraw on interval if not showing static overlays
             needs_redraw = state_changed or (
-                (now - last_draw >= REDRAW_INTERVAL) and not (state.show_help or state.show_playlist)
+                (now - last_draw >= REDRAW_INTERVAL) and not (state.show_help or state.show_playlist or state.show_album_art)
             )
             if needs_redraw:
                 print("\033[2J\033[H", end="")
-                if state.show_help:
+                if state.show_album_art:
+                    draw_album_art_overlay()
+                elif state.show_help:
                     draw_help_overlay()
                 elif state.show_playlist:
                     draw_playlist_overlay()
@@ -2420,6 +3344,7 @@ def main() -> None:
                 last_show_playlist = state.show_playlist
                 last_show_help = state.show_help
                 last_show_search = state.show_search
+                last_show_album_art = state.show_album_art
                 last_search_query = state.search_query
                 last_playlist_len = len(state.playlist)
                 last_playlist_index = state.playlist_index
@@ -2556,6 +3481,11 @@ def main() -> None:
                         pass
                     elif _handle_volume_control(ch):
                         pass
+                    elif ch == "o":
+                        state.show_album_art = not state.show_album_art
+                        state.show_help = False
+                        state.show_playlist = False
+                        state.show_search = False
 
     finally:
         stop_audio()
@@ -2570,7 +3500,19 @@ def main() -> None:
 # Non-Interactive Mode
 # =============================================================================
 if __name__ == "__main__":
-    if "--no-tty-check" in sys.argv:
+    if "--version" in sys.argv or "-v" in sys.argv:
+        print(f"danktunes {__version__}")
+        print(f"{__description__}")
+        print(f"Author: {__author__}")
+    elif "--help" in sys.argv or "-h" in sys.argv:
+        print(f"danktunes {__version__}")
+        print("")
+        print("Usage:")
+        print("  python3 danktunes.py           # Run in interactive mode")
+        print("  python3 danktunes.py <file>   # Play file directly")
+        print("  python3 danktunes.py --version # Show version info")
+        print("  python3 danktunes.py --help   # Show this help")
+    elif "--no-tty-check" in sys.argv:
         if len(sys.argv) > 2:
             play(sys.argv[2])
         else:

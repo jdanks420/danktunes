@@ -4,6 +4,8 @@
 # Optional Python packages:
 # - tomli (for Python < 3.11 TOML support)
 #   Install with: pip install tomli
+# - pytest (for running tests)
+#   Install with: pip install pytest
 
 # System dependencies (must be installed separately):
 # - mpg123 (audio player for MP3/OGG/AAC)
