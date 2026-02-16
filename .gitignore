@@ -95,3 +95,10 @@ danktunes.log
 playlists/*.m3u
 __pycache__/
 *.pyc
+
+# Development files (not needed for runtime)
+tests/
+.github/
+dev_stuff/
+TODO.md
+manpage.txt
