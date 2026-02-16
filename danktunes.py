@@ -443,10 +443,6 @@ def print_image_urxvt(path: str) -> str:
         Escape sequence string
     """
     try:
-        import base64
-        with open(path, "rb") as f:
-            data = base64.b64encode(f.read()).decode("ascii")
-        
         return f"\033]20;{path};100;oT\a"
     except Exception:
         return ""
