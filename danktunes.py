@@ -788,6 +788,7 @@ HEADER_GLYPH = _config.get("ui", {}).get("header_glyph", "😎")
 ALBUM_ART_ENABLED = _config.get("album_art", {}).get("enabled", True)
 ALBUM_ART_WIDTH = _config.get("album_art", {}).get("width", 20)
 last_album_art_path = None  # Track last displayed album art for overlay
+last_album_art_track = None  # Track last displayed track for overlay
 
 # Notification options
 NOTIFICATIONS_ENABLED = _config.get("notifications", {}).get("enabled", False)
@@ -3351,7 +3352,11 @@ def main() -> None:
 
             # Redraw if needed
             now = time.time()
-            global resize_received
+            global resize_received, last_album_art_track
+            
+            # For album art overlay, only redraw when track actually changes
+            album_art_track_changed = state.current_path != last_album_art_track
+            
             state_changed = (
                 state.cursor != last_cursor
                 or state.show_playlist != last_show_playlist
@@ -3362,6 +3367,7 @@ def main() -> None:
                 or state.playlist_index != last_playlist_index
                 or state.playlist_scroll_offset != last_playlist_scroll
                 or state.show_album_art != last_show_album_art
+                or (state.show_album_art and album_art_track_changed)
                 or resize_received
             )
             resize_received = False
@@ -3373,6 +3379,7 @@ def main() -> None:
                 print("\033[2J\033[H", end="")
                 if state.show_album_art:
                     draw_album_art_overlay()
+                    last_album_art_track = state.current_path
                 elif state.show_help:
                     draw_help_overlay()
                 elif state.show_playlist:
