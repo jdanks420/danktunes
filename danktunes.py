@@ -627,6 +627,7 @@ class PlayerState:
     shuffle_mode: bool = False
     show_playlist: bool = False
     repeat_mode: str = "off"
+    auto_dj_mode: bool = False
 
     # Timing
     last_seek_time: float = 0.0
@@ -823,6 +824,7 @@ def save_state() -> bool:
             "expanded_dirs": list(state.expanded_dirs),
             "shuffle_mode": state.shuffle_mode,
             "repeat_mode": state.repeat_mode,
+            "auto_dj_mode": state.auto_dj_mode,
         }
 
         state_file = _get_state_file()
@@ -868,6 +870,9 @@ def load_state() -> bool:
 
         if "repeat_mode" in state_data:
             state.repeat_mode = state_data["repeat_mode"]
+
+        if "auto_dj_mode" in state_data:
+            state.auto_dj_mode = state_data["auto_dj_mode"]
 
         logger.debug(f"State loaded from {state_file}")
         return True
@@ -1777,6 +1782,35 @@ def toggle_repeat_mode() -> None:
     state.repeat_mode = modes[next_idx]
 
 
+def toggle_auto_dj() -> None:
+    """Toggle auto-DJ mode for continuous playback from library."""
+    state.auto_dj_mode = not state.auto_dj_mode
+
+
+def _add_random_from_library(count: int = 10) -> None:
+    """Add random tracks from the library to the playlist.
+    
+    Args:
+        count: Number of tracks to add
+    """
+    if not state.flat_items:
+        return
+    
+    audio_files = [str(item.path) for item in state.flat_items if not item.is_dir]
+    if not audio_files:
+        return
+    
+    import random
+    available = [f for f in audio_files if f not in state.playlist]
+    if not available:
+        available = audio_files  # If all tracks played, allow repeats
+    
+    to_add = random.sample(available, min(count, len(available)))
+    
+    for track in to_add:
+        state.playlist.append(track)
+
+
 def cycle_sort_mode() -> None:
     """Cycle through sort modes: name -> date -> duration -> name."""
     modes = ["name", "date", "duration"]
@@ -1891,6 +1925,7 @@ def go_to_next_track() -> bool:
     - "off": stops at end of playlist
     - "all": loops back to start
     - "one": replays current track
+    - auto-dj: adds more tracks from library when playlist runs low
 
     Returns:
         True if moved to next, False if at end (and repeat is off)
@@ -1908,6 +1943,11 @@ def go_to_next_track() -> bool:
         state.playlist_index = 0
         state.playlist_scroll_offset = 0
         return True
+    elif state.auto_dj_mode:
+        _add_random_from_library(10)
+        if state.playlist_index + 1 < len(state.playlist):
+            state.playlist_index += 1
+            return True
     return False
 
 
@@ -2328,6 +2368,7 @@ def draw_help_overlay() -> None:
                 ("c", "Clear playlist"),
                 (f"Shift+S {Icons.SHUFFLE}", "Toggle shuffle"),
                 ("r", "Cycle repeat: off -> all -> one"),
+                ("d", "Toggle auto-DJ (continuous play)"),
                 ("[ / ]", "Previous/Next in playlist"),
                 ("v", "View playlist"),
                 ("L", "Load playlist"),
@@ -2546,6 +2587,7 @@ def draw() -> List[TreeItem]:
 def _draw_ranger_header(inner_width: int) -> None:
     """Draw header line inside Ranger-style borders."""
     shuffle_icon = f" {Icons.SHUFFLE}" if state.shuffle_mode else ""
+    auto_dj_icon = " \u267B" if state.auto_dj_mode else ""  # ♫ recycle symbol for auto-dj
     header_text = _get_header_text()
 
     if state.process and state.process.poll() is None:
@@ -2562,6 +2604,7 @@ def _draw_ranger_header(inner_width: int) -> None:
             _display_width(fixed)
             + _display_width(speed_str)
             + _display_width(shuffle_icon)
+            + _display_width(auto_dj_icon)
         )
         max_len = inner_width - fixed_len
 
@@ -2569,7 +2612,7 @@ def _draw_ranger_header(inner_width: int) -> None:
         if _display_width(header_plain) > max_len:
             header_text = _truncate_to_width(header_plain, max_len)
 
-        header_line = f"{fixed}{C_HEADER}{header_text}{C_RESET}{C_SECONDARY}{speed_str}{C_RESET}{shuffle_icon}"
+        header_line = f"{fixed}{C_HEADER}{header_text}{C_RESET}{C_SECONDARY}{speed_str}{C_RESET}{shuffle_icon}{auto_dj_icon}"
         visible_len = _display_width(header_line)
 
         print(f"{BORDER_V}{header_line}", end="")
@@ -2581,7 +2624,7 @@ def _draw_ranger_header(inner_width: int) -> None:
     else:
         # Build a truncated danktunes header that respects inner width
         header_prefix = f"{HEADER_GLYPH}  {C_HEADER}"
-        header_suffix = f"{C_RESET}{shuffle_icon}"
+        header_suffix = f"{C_RESET}{shuffle_icon}{auto_dj_icon}"
 
         max_text_len = (
             inner_width - _display_width(header_prefix) - _display_width(header_suffix)
@@ -2931,6 +2974,9 @@ def _handle_playlist_commands(key: str) -> bool:
         return True
     elif key == "r":
         toggle_repeat_mode()
+        return True
+    elif key == "d":
+        toggle_auto_dj()
         return True
     elif key == "]":
         if go_to_next_track():
