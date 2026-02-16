@@ -118,6 +118,24 @@ Album art display settings:
 - **enabled**: Show album art in the player (default: `true`)
 - **width**: Width of album art display in characters (default: `20`)
 
+### Terminal Compatibility
+
+The player supports multiple terminal image protocols. The best protocol is automatically detected based on your terminal:
+
+| Terminal | Protocol | Notes |
+|----------|----------|-------|
+| Kitty | Kitty | Native support |
+| Ghostty | Kitty | Native support |
+| iTerm2 | iTerm2 | Native support |
+| WezTerm | Sixel/iTerm2 | Native support |
+| Windows Terminal | iTerm2 | Native support |
+| VSCode Terminal | iTerm2 | Native support |
+| GNOME Terminal | iTerm2/Sixel | May require configuration |
+| Alacritty | Ueberzug | No native support, requires ueberzug |
+| Other terminals | Varies | May work with ueberzug |
+
+For best results with Alacritty or other terminals without native image support, install [ueberzug](https://github.com/ueberzug/ueberzug).
+
 ### Example Configuration
 
 ```toml

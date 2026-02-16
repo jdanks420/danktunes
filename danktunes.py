@@ -230,6 +230,31 @@ class TerminalImageProtocol:
         term_var = os.environ.get("TERM", "")
         colorterm = os.environ.get("COLORTERM", "")
         
+        # Check for Ghostty (supports Kitty graphics protocol)
+        if term.lower() == "ghostty":
+            cls._detected = cls.KITTY
+            return cls._detected
+        
+        # Check for WezTerm (supports Sixel and iTerm2)
+        if term.lower() == "wezterm":
+            if cls._check_sixel_support():
+                cls._detected = cls.SIXEL
+            elif cls._check_iterm2_inline():
+                cls._detected = cls.ITERM2
+            else:
+                cls._detected = cls.SIXEL  # WezTerm has built-in Sixel
+            return cls._detected
+        
+        # Check for Windows Terminal (supports iTerm2)
+        if term.lower() == "windows-terminal" or "windows terminal" in term.lower():
+            cls._detected = cls.ITERM2
+            return cls._detected
+        
+        # Check for VSCode terminal (supports iTerm2)
+        if "vscode" in term.lower():
+            cls._detected = cls.ITERM2
+            return cls._detected
+        
         # Check for Kitty-specific environment variable
         if os.environ.get("KITTY_WINDOW_ID"):
             cls._detected = cls.KITTY
@@ -254,6 +279,21 @@ class TerminalImageProtocol:
         if "rxvt" in term_var.lower() or "urxvt" in term_var.lower():
             cls._detected = cls.URXVT
             return cls._detected
+        
+        # Check for Alacritty - no native image support, try ueberzug
+        if "alacritty" in term_var.lower():
+            if cls._check_ueberzug_support():
+                cls._detected = cls.UEBERZUG
+                return cls._detected
+        
+        # GNOME Terminal and other mainstream terminals - try iTerm2 then Sixel
+        if "gnome" in term_var.lower() or "vte" in term_var.lower():
+            if cls._check_iterm2_inline():
+                cls._detected = cls.ITERM2
+                return cls._detected
+            if cls._check_sixel_support():
+                cls._detected = cls.SIXEL
+                return cls._detected
         
         if cls._check_ueberzug_support():
             cls._detected = cls.UEBERZUG
