@@ -1312,7 +1312,7 @@ def scan_all_durations(items: List[TreeItem]) -> int:
                         if len(state.track_durations) >= MAX_TRACK_DURATIONS:
                             for _ in range(CACHE_TRIM_SIZE):
                                 if state.track_durations:
-                                    state.track_durations.popitem(last=False)
+                                    del state.track_durations[next(iter(state.track_durations))]
                         
                         state.track_durations[path_str] = duration
                         count += 1
@@ -1325,7 +1325,7 @@ def scan_all_durations(items: List[TreeItem]) -> int:
                 if len(state.track_durations) >= MAX_TRACK_DURATIONS:
                     for _ in range(CACHE_TRIM_SIZE):
                         if state.track_durations:
-                            state.track_durations.popitem(last=False)
+                            del state.track_durations[next(iter(state.track_durations))]
                 state.track_durations[path_str] = duration
                 count += 1
     
@@ -1419,7 +1419,7 @@ def _cache_directory(path: Path, level: int, items: List["TreeItem"]) -> None:
         _dir_cache.move_to_end(path_str)
     
     while len(_dir_cache) >= DIR_CACHE_MAX_SIZE:
-        _dir_cache.popitem(last=False)
+        del _dir_cache[next(iter(_dir_cache))]
     
     try:
         mtime = os.path.getmtime(str(path))
