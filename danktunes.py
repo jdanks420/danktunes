@@ -3354,6 +3354,9 @@ def main() -> None:
             now = time.time()
             global resize_received, last_album_art_track
             
+            # Check if currently playing (for progress bar updates)
+            is_playing = state.process and state.process.poll() is None and not getattr(state, 'paused', False)
+            
             # For album art overlay, only redraw when track actually changes
             album_art_track_changed = state.current_path != last_album_art_track
             
@@ -3371,9 +3374,12 @@ def main() -> None:
                 or resize_received
             )
             resize_received = False
-            # Only redraw on interval if not showing static overlays
+            # Only redraw on interval if playing (for progress bar) and not in static overlays
+            # For Alacritty/other terminals, this reduces flickering by only redrawing when needed
             needs_redraw = state_changed or (
-                (now - last_draw >= REDRAW_INTERVAL) and not (state.show_help or state.show_playlist or state.show_album_art)
+                is_playing
+                and (now - last_draw >= REDRAW_INTERVAL)
+                and not (state.show_help or state.show_playlist or state.show_album_art)
             )
             if needs_redraw:
                 print("\033[2J\033[H", end="")
