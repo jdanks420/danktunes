@@ -1800,7 +1800,6 @@ def _add_random_from_library(count: int = 10) -> None:
     if not audio_files:
         return
     
-    import random
     available = [f for f in audio_files if f not in state.playlist]
     if not available:
         available = audio_files  # If all tracks played, allow repeats
@@ -3547,6 +3546,8 @@ def main() -> None:
                         elif ch == "v":
                             state.show_search = False
                             toggle_playlist_view()
+                        elif ch == "d":
+                            toggle_auto_dj()
 
                 elif state.show_playlist:
                     # Handle playlist-specific keys
